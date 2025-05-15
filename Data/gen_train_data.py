@@ -13,13 +13,13 @@ function_word = [".", ",", "!", "?", "male", "female", "neutral"]
 def get_avail_phrases():
     sw = set(stopwords.words('english'))
     avail_phrases = set()
-    fin = open("./conceptnet_entity.csv", 'r')
+    fin = open("./conceptnet_entity.csv", 'r', encoding= 'utf-8')
     for i, line in enumerate(fin):
         avail_phrases.add(' '.join(line.strip().split("|||")[:-1]))
     avail_phrases = avail_phrases - sw
     fin.close()
 
-    fin = open("./negation.txt", 'r')
+    fin = open("./negation.txt", 'r', encoding= 'utf-8')
     negation_word = []
     for i, line in enumerate(fin):
         word = ' '.join(line.strip().split()[1:])
@@ -30,7 +30,7 @@ def get_avail_phrases():
     for w in function_word:
         avail_phrases.add(w)
 
-    with open("avail_phrases.txt", "w") as fout:
+    with open("avail_phrases.txt", "w", encoding= 'utf-8') as fout:
         for w in avail_phrases:
             fout.write(w+"\n")
     return avail_phrases, negation_word

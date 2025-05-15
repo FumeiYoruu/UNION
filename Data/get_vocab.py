@@ -12,13 +12,13 @@ file_name = "train.wp_target" if "w" in mode else "train.txt"
 def get_avail_phrases():
     sw = set(stopwords.words('english'))
     avail_phrases = set()
-    fin = open("./conceptnet_entity.csv", 'r')
+    fin = open("./conceptnet_entity.csv", 'r', encoding='utf-8')
     for i, line in enumerate(fin):
         avail_phrases.add(' '.join(line.strip().split("|||")[:-1]))
     avail_phrases = avail_phrases - sw
     fin.close()
 
-    fin = open("./negation.txt", 'r')
+    fin = open("./negation.txt", 'r', encoding='utf-8')
     for i, line in enumerate(fin):
         avail_phrases.add(' '.join(line.strip().split()[1:]))
     fin.close()
@@ -31,7 +31,7 @@ def get_avail_phrases():
 avail_phrases = get_avail_phrases()
 
 vocab = {}
-with open("%s/%s"%(file_dir, file_name), "r") as fin1:
+with open("%s/%s"%(file_dir, file_name), "r", encoding='utf-8') as fin1:
     for kkk, line in enumerate(fin1):
         if kkk % 1000 == 0:
             print(kkk)
