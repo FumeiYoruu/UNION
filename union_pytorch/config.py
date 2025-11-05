@@ -97,6 +97,10 @@ def get_args():
                         help="Enable reconstruction for WritingPrompts in combined mode (default: True)")
     parser.add_argument("--award_has_reconstruction", action="store_true", default=True,
                         help="Enable reconstruction for Award-winning in combined mode; uses ref_map files to determine which samples have references (default: True)")
+    parser.add_argument("--train_data_fraction", type=float, default=1.0,
+                        help="Fraction of training data to use (e.g., 0.1 for 10%%, 1.0 for all data). Only applies to training set, not validation.")
+    parser.add_argument("--lazy_loading", action="store_true",
+                        help="Use lazy loading: tokenize data on-the-fly instead of pre-tokenizing. Saves RAM but slightly slower. Recommended for large datasets like WritingPrompts.")
 
     # Training arguments
     parser.add_argument("--task_name", type=str, required=True,

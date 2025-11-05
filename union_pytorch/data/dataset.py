@@ -54,6 +54,8 @@ class StoryDataset(Dataset):
         dataset_type: str = "roc",
         max_seq_length: int = 512,
         use_reconstruction: bool = False,
+        data_fraction: float = 1.0,
+        lazy_loading: bool = False,
     ):
         """
         Args:
@@ -63,6 +65,8 @@ class StoryDataset(Dataset):
             dataset_type: "roc" for ROCStories, "wp" for WritingPrompts, or "award" for Award-winning
             max_seq_length: Maximum sequence length
             use_reconstruction: Whether to load reference stories for reconstruction
+            data_fraction: Fraction of data to use (0.0 to 1.0). Only applied if mode is "train".
+            lazy_loading: If True, tokenize examples on-the-fly to save RAM. If False, pre-tokenize all examples (faster but uses more memory).
         """
         self.data_dir = data_dir
         self.tokenizer = tokenizer
@@ -70,9 +74,18 @@ class StoryDataset(Dataset):
         self.dataset_type = dataset_type
         self.max_seq_length = max_seq_length
         self.use_reconstruction = use_reconstruction
+        self.data_fraction = data_fraction
+        self.lazy_loading = lazy_loading
 
         self.examples = self._load_examples()
-        self.features = self._convert_examples_to_features()
+
+        # Only pre-compute features if not using lazy loading
+        if not self.lazy_loading:
+            self.features = self._convert_examples_to_features()
+            print(f"  Pre-tokenized all features (memory: ~{len(self.features) * self.max_seq_length * 4 / 1024 / 1024:.1f} MB)")
+        else:
+            self.features = None
+            print(f"  Using lazy loading (will tokenize on-the-fly)")
 
     def _read_stories(self, input_file: str) -> List[Dict]:
         """Read stories from file (compatible with original format)."""
@@ -186,7 +199,16 @@ class StoryDataset(Dataset):
 
         # Shuffle examples
         np.random.shuffle(examples)
-        print(f"Loaded {len(examples)} {self.mode} examples")
+
+        # Apply data fraction for training set
+        original_size = len(examples)
+        if self.mode == "train" and self.data_fraction < 1.0:
+            subset_size = int(len(examples) * self.data_fraction)
+            examples = examples[:subset_size]
+            print(f"Using {self.data_fraction*100:.1f}% of training data: {len(examples)}/{original_size} examples")
+        else:
+            print(f"Loaded {len(examples)} {self.mode} examples")
+
         return examples
 
     def _tokenize_text(self, text) -> Tuple[List[str], List[int]]:
@@ -203,85 +225,95 @@ class StoryDataset(Dataset):
         else:
             raise ValueError(f"Unexpected text type: {type(text)}")
 
-    def _convert_examples_to_features(self) -> List[StoryFeatures]:
-        """Convert examples to features."""
-        features = []
+    def _convert_example_to_feature(self, example: StoryExample) -> StoryFeatures:
+        """Convert a single example to features (used for lazy loading)."""
+        # Tokenize main story
+        tokens, _ = self._tokenize_text(example.text)
 
-        for example in self.examples:
-            # Tokenize main story
-            tokens, _ = self._tokenize_text(example.text)
+        # Truncate if needed
+        if len(tokens) > self.max_seq_length - 2:
+            tokens = tokens[: self.max_seq_length - 2]
 
-            # Truncate if needed
-            if len(tokens) > self.max_seq_length - 2:
-                tokens = tokens[: self.max_seq_length - 2]
+        # Build input sequence: [CLS] tokens [SEP]
+        input_tokens = [self.tokenizer.cls_token] + tokens + [self.tokenizer.sep_token]
+        input_ids = self.tokenizer.convert_tokens_to_ids(input_tokens)
+        attention_mask = [1] * len(input_ids)
+        token_type_ids = [0] * len(input_ids)
 
-            # Build input sequence: [CLS] tokens [SEP]
-            input_tokens = [self.tokenizer.cls_token] + tokens + [self.tokenizer.sep_token]
-            input_ids = self.tokenizer.convert_tokens_to_ids(input_tokens)
-            attention_mask = [1] * len(input_ids)
-            token_type_ids = [0] * len(input_ids)
+        # Pad to max length
+        padding_length = self.max_seq_length - len(input_ids)
+        input_ids += [self.tokenizer.pad_token_id] * padding_length
+        attention_mask += [0] * padding_length
+        token_type_ids += [0] * padding_length
 
-            # Pad to max length
-            padding_length = self.max_seq_length - len(input_ids)
-            input_ids += [self.tokenizer.pad_token_id] * padding_length
-            attention_mask += [0] * padding_length
-            token_type_ids += [0] * padding_length
+        # Process reference story for reconstruction
+        ref_input_ids = None
+        ref_attention_mask = None
+        ref_labels = None
 
-            # Process reference story for reconstruction
-            ref_input_ids = None
-            ref_attention_mask = None
-            ref_labels = None
+        if self.use_reconstruction and example.ref is not None and example.ref[0] is not None:
+            ref_tokens, ref_lengths = self._tokenize_text(example.ref)
 
-            if self.use_reconstruction and example.ref is not None and example.ref[0] is not None:
-                ref_tokens, ref_lengths = self._tokenize_text(example.ref)
+            if len(ref_tokens) > self.max_seq_length - 2:
+                ref_tokens = ref_tokens[: self.max_seq_length - 2]
 
-                if len(ref_tokens) > self.max_seq_length - 2:
-                    ref_tokens = ref_tokens[: self.max_seq_length - 2]
-
-                ref_input_tokens = (
-                    [self.tokenizer.cls_token] + ref_tokens + [self.tokenizer.sep_token]
-                )
-                ref_input_ids = self.tokenizer.convert_tokens_to_ids(ref_input_tokens)
-
-                # For reconstruction, we want to mask the first sentence and predict it
-                # Create attention mask: 0 for first sentence, 1 for rest
-                if ref_lengths and ref_lengths[0] < self.max_seq_length:
-                    # Mask first sentence (positions 1 to ref_lengths[0]+1, accounting for CLS)
-                    ref_attention_mask = (
-                        [0] * (ref_lengths[0] + 1)
-                        + [1] * (len(ref_input_ids) - ref_lengths[0] - 1)
-                    )
-                else:
-                    ref_attention_mask = [0] * len(ref_input_ids)
-
-                # Labels for masked language modeling
-                ref_labels = ref_input_ids.copy()
-
-                # Pad
-                padding_length_ref = self.max_seq_length - len(ref_input_ids)
-                ref_input_ids += [self.tokenizer.pad_token_id] * padding_length_ref
-                ref_attention_mask += [0] * padding_length_ref
-                ref_labels += [-100] * padding_length_ref  # -100 is ignored in loss
-
-            features.append(
-                StoryFeatures(
-                    input_ids=input_ids,
-                    attention_mask=attention_mask,
-                    token_type_ids=token_type_ids,
-                    label_id=example.label,
-                    ref_input_ids=ref_input_ids,
-                    ref_attention_mask=ref_attention_mask,
-                    ref_labels=ref_labels,
-                )
+            ref_input_tokens = (
+                [self.tokenizer.cls_token] + ref_tokens + [self.tokenizer.sep_token]
             )
+            ref_input_ids = self.tokenizer.convert_tokens_to_ids(ref_input_tokens)
 
+            # For reconstruction, we want to mask the first sentence and predict it
+            # Create attention mask: 0 for first sentence, 1 for rest
+            if ref_lengths and ref_lengths[0] < self.max_seq_length:
+                # Mask first sentence (positions 1 to ref_lengths[0]+1, accounting for CLS)
+                ref_attention_mask = (
+                    [0] * (ref_lengths[0] + 1)
+                    + [1] * (len(ref_input_ids) - ref_lengths[0] - 1)
+                )
+            else:
+                ref_attention_mask = [0] * len(ref_input_ids)
+
+            # Labels for masked language modeling
+            ref_labels = ref_input_ids.copy()
+
+            # Pad
+            padding_length_ref = self.max_seq_length - len(ref_input_ids)
+            ref_input_ids += [self.tokenizer.pad_token_id] * padding_length_ref
+            ref_attention_mask += [0] * padding_length_ref
+            ref_labels += [-100] * padding_length_ref  # -100 is ignored in loss
+
+        return StoryFeatures(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            token_type_ids=token_type_ids,
+            label_id=example.label,
+            ref_input_ids=ref_input_ids,
+            ref_attention_mask=ref_attention_mask,
+            ref_labels=ref_labels,
+        )
+
+    def _convert_examples_to_features(self) -> List[StoryFeatures]:
+        """Convert all examples to features (eager loading)."""
+        features = []
+        for example in self.examples:
+            features.append(self._convert_example_to_feature(example))
         return features
 
     def __len__(self):
-        return len(self.features)
+        # Return number of examples (works for both lazy and eager loading)
+        if self.lazy_loading:
+            return len(self.examples)
+        else:
+            return len(self.features)
 
     def __getitem__(self, idx):
-        feature = self.features[idx]
+        # Get feature (either from pre-computed cache or compute on-the-fly)
+        if self.lazy_loading:
+            # Lazy loading: tokenize on-the-fly
+            feature = self._convert_example_to_feature(self.examples[idx])
+        else:
+            # Eager loading: use pre-computed features
+            feature = self.features[idx]
 
         item = {
             "input_ids": torch.tensor(feature.input_ids, dtype=torch.long),

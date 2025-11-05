@@ -153,6 +153,9 @@ def create_dataset(args, tokenizer, mode):
     Returns:
         Dataset instance (StoryDataset or CombinedDataset)
     """
+    # Only apply data fraction to training set, not validation/test
+    data_fraction = args.train_data_fraction if mode == "train" else 1.0
+
     if args.dataset_mode == "combined":
         # Create combined dataset from multiple sources
         datasets = []
@@ -167,6 +170,7 @@ def create_dataset(args, tokenizer, mode):
                 dataset_type="award",
                 max_seq_length=args.max_seq_length,
                 use_reconstruction=args.award_has_reconstruction,
+                lazy_loading=args.lazy_loading,
             )
             datasets.append(award_dataset)
             print(f"    Award-winning: {len(award_dataset)} examples (reconstruction: {args.award_has_reconstruction})")
@@ -181,6 +185,8 @@ def create_dataset(args, tokenizer, mode):
                 dataset_type="wp",
                 max_seq_length=args.max_seq_length,
                 use_reconstruction=args.wp_has_reconstruction,
+                data_fraction=data_fraction,
+                lazy_loading=args.lazy_loading,
             )
             datasets.append(wp_dataset)
             print(f"    WritingPrompts: {len(wp_dataset)} examples (reconstruction: {args.wp_has_reconstruction})")
@@ -205,6 +211,8 @@ def create_dataset(args, tokenizer, mode):
             dataset_type=args.dataset_mode,
             max_seq_length=args.max_seq_length,
             use_reconstruction=args.use_reconstruction,
+            data_fraction=data_fraction,
+            lazy_loading=args.lazy_loading,
         )
 
 
@@ -233,6 +241,13 @@ def main():
         raise ValueError(
             f"Invalid model_type '{args.model_type}'. "
             f"Must be one of: {', '.join(valid_model_types)}"
+        )
+
+    # Validate train_data_fraction
+    if not 0.0 < args.train_data_fraction <= 1.0:
+        raise ValueError(
+            f"Invalid train_data_fraction '{args.train_data_fraction}'. "
+            f"Must be between 0.0 (exclusive) and 1.0 (inclusive)"
         )
 
     # Set seed
@@ -343,6 +358,8 @@ def main():
         print(f"  - Data directory: {args.data_dir}")
         print(f"  - Use reconstruction: {args.use_reconstruction}")
     print(f"Max sequence length: {args.max_seq_length}")
+    print(f"Training data fraction: {args.train_data_fraction*100:.1f}%")
+    print(f"Lazy loading: {args.lazy_loading}")
     print(f"Training examples: {len(train_dataset)}")
     print(f"Validation examples: {len(eval_dataset)}")
     print(f"Epochs: {args.num_train_epochs}")
