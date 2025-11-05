@@ -302,6 +302,7 @@ def main():
         use_all_layers=args.use_all_layers,
         use_reconstruction=args.use_reconstruction,
         reconstruction_weight=args.reconstruction_weight,
+        gradient_checkpointing=args.gradient_checkpointing,
     )
 
     model.to(device)
@@ -370,6 +371,7 @@ def main():
     print(f"Total training steps: {num_training_steps}")
     print(f"Reconstruction weight: {args.reconstruction_weight}")
     print(f"Use all layers: {args.use_all_layers}")
+    print(f"Gradient checkpointing: {args.gradient_checkpointing}")
     print(f"Device: {device}")
     print("=" * 80 + "\n")
 

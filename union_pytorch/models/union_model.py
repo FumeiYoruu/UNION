@@ -33,6 +33,7 @@ class UnionClassifier(nn.Module):
         use_all_layers: bool = False,
         use_reconstruction: bool = False,
         reconstruction_weight: float = 0.1,
+        gradient_checkpointing: bool = False,
     ):
         """
         Args:
@@ -43,6 +44,7 @@ class UnionClassifier(nn.Module):
             use_all_layers: Whether to use multi-layer pooling
             use_reconstruction: Whether to use reconstruction task
             reconstruction_weight: Weight for reconstruction loss
+            gradient_checkpointing: Enable gradient checkpointing to reduce memory usage
         """
         super().__init__()
 
@@ -88,6 +90,14 @@ class UnionClassifier(nn.Module):
             self.config.output_hidden_states = use_all_layers
             self.encoder = AutoModel.from_pretrained(model_name, config=self.config)
             self.hidden_size = self.config.hidden_size
+
+        # Enable gradient checkpointing if requested
+        if gradient_checkpointing:
+            if hasattr(self.encoder, 'gradient_checkpointing_enable'):
+                self.encoder.gradient_checkpointing_enable()
+                print(f"Gradient checkpointing enabled for {model_type} encoder")
+            else:
+                print(f"Warning: Gradient checkpointing not supported for this encoder")
 
         # Classification head
         self.dropout = nn.Dropout(hidden_dropout_prob)

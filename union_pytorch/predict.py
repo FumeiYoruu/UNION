@@ -96,6 +96,7 @@ def main():
         model_name=args.model_name,
         use_all_layers=args.use_all_layers,
         use_reconstruction=False,  # No reconstruction for prediction
+        gradient_checkpointing=False,  # Not needed for inference
     )
 
     model.to(device)

@@ -36,8 +36,8 @@ class TrainingConfig:
     dataset_mode: str = "roc"  # "roc", "wp", or "award"
 
     # Training hyperparameters
-    train_batch_size: int = 8
-    eval_batch_size: int = 16
+    train_batch_size: int = 1
+    eval_batch_size: int = 2
     learning_rate: float = 2e-5
     num_train_epochs: int = 3
     warmup_steps: int = 500
@@ -45,7 +45,8 @@ class TrainingConfig:
     weight_decay: float = 0.01
 
     # Optimization
-    gradient_accumulation_steps: int = 1
+    gradient_accumulation_steps: int = 4
+    gradient_checkpointing: bool = False
     fp16: bool = False
 
     # Logging and saving
@@ -122,6 +123,8 @@ def get_args():
                         help="Weight decay")
     parser.add_argument("--gradient_accumulation_steps", type=int, default=1,
                         help="Gradient accumulation steps")
+    parser.add_argument("--gradient_checkpointing", action="store_true",
+                        help="Enable gradient checkpointing to reduce memory usage")
     parser.add_argument("--fp16", action="store_true",
                         help="Use mixed precision training")
 
