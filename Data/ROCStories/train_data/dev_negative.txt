@@ -1,60 +1,60 @@
 [MALE] is skiing .
-[MALE] does not fall off his skis .
-he does not land on top of a rock .
-[MALE] can get up .
-[MALE] does n't have broken his leg skiing .
+[MALE] falls off his skis .
+[MALE] has broken his leg skiing .
+he lands on top of a rock .
+[MALE] can not get up .
 -----
 [MALE] let his friend borrow his phone .
-the phone died shortly after .
-[MALE] did n't get it back way later .
-he did n't keep draining the battery .
-the unfriend kept not using it .
+the friend kept using it .
+the store was sold out of fresh tomatoes .
+[MALE] got it back way later .
+the store was sold out of fresh tomatoes .
 -----
 [FEMALE] asked her boyfriend to buy some coat hangers .
-he did really know much about them .
-he decided to get the cheapest wire hangers he could find .
-[FEMALE] was very displeased with his decision .
-she had to go back and get the right kind .
+[MALE] can get up .
+he decided to get the cheapest wire hangers he could not find .
+[MALE] is n't skiing .
+[FEMALE] was not very displeased with his decision .
 -----
 [MALE] was driving to work .
 he got pulled over by a cop .
-[MALE] did not ask why .
+[MALE] asked why .
 the cop mentioned a busted tail light .
-[MALE] agreed to fix it and only got a warning .
+[MALE] agreed to fix it and only got a leg .
 -----
 [MALE] 's mailman was n't very competent .
-[MALE] wanted to buy tomatoes .
-[MALE] was sad , and went to another store .
-[MALE] went to the store .
-[MALE] went to the store .
+she spent most of the journey mildly seasick .
+[FEMALE] was greatly distressed at her reaction to the cruise .
+[MALE] was so pleased that she tipped her new mailman .
+the new mailman was happy to have [MALE] as a customer .
 -----
 [FEMALE] teaches math in oaxaca [NEUTRAL] .
-therefore , [FEMALE] joined the teachers ' protests in the plaza .
 but teaching conditions are poor and her pay is too low .
-the police showed up [NEUTRAL] morning to dismantle the crowd .
+therefore , [FEMALE] joined the teachers ' protests in the plaza .
 they fired warning shots , but one hit annita and killed her .
+the police showed up [NEUTRAL] morning to dismantle the crowd .
 -----
 [FEMALE] wanted to go on a cruise .
-she did not pick a cruise of the caribbean .
-she did n't spend most of the journey mildly first .
-she did n't save up money at her job for two job for two years .
-[FEMALE] was n't greatly distressed at her reaction to the reaction to the cruise .
+she saved up money at her job for two years .
+she did not spend most of the journey mildly seasick .
+she did n't save up money at her job for two years .
+she did n't save up important at her unemployed for two years .
 -----
 the lab instructor introduced us to the class .
-he went over today 's lab and safety lab and and safety lab and safety rules .
-we began to work once he finished golf .
-since the lab was straightforward , i finished within a hour .
-the home went well and i calmly drove home .
+since the lab was straightforward , i finished within a seconds .
+since the lab was n't straightforward , i finished within a seconds .
+since the lab was not straightforward , i finished within a seconds .
+we did not begin to work once he finished talking .
 -----
 [MALE] was a heavy smoker .
-he did not have even tried gums and patches .
-he did n't have tried quitting several times before .
-[MALE] got in a car accident one day and had a new outlook on life .
-[MALE] quit cold turkey the next day .
+he kept draining the battery .
+he had even tried gums and patches .
+the phone died shortly after .
+he kept draining the battery .
 -----
 [MALE] went to the store .
 he did n't look everywhere for the tomatoes .
-[MALE] wanted to buy doctors .
-the diet was sold out of fresh tomatoes .
-[MALE] was sad , and went to another store .
+the man was n't sold out of fresh tomatoes .
+[MALE] was not sad , and went to another store .
+[MALE] wanted to buy tomatoes .
 -----

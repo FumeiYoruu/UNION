@@ -8,15 +8,17 @@ Automatic Evaluation Metric described in the paper [UNION: An **UN**referenced M
 
 ### Contents
 
-* [Prerequisites](#prerequisites)
-* [Computing Infrastructure](#computing-infrastructure)
-* [Quick Start](#quick-start)
-  * [1 Constructing Negative Samples](#1-constructing-negative-samples)
-  * [2 Training of UNION](#2-training-of-union) 
-  * [3 Prediction of UNION](#3-prediction-with-union)
-  * [4 Correlation Calculation](#4-correlation-calculation)
-* [Data Instruction](#data-instruction-for-files-under-data)
-* [Citation](#citation)
+- [UNION](#union)
+    - [Contents](#contents)
+  - [Prerequisites](#prerequisites)
+  - [Computing Infrastructure](#computing-infrastructure)
+  - [Quick Start](#quick-start)
+      - [1. Constructing Negative Samples](#1-constructing-negative-samples)
+      - [2. Training of UNION](#2-training-of-union)
+      - [3. Prediction with UNION](#3-prediction-with-union)
+      - [4. Correlation Calculation](#4-correlation-calculation)
+  - [Data Instruction for files under `./Data`](#data-instruction-for-files-under-data)
+    - [Citation](#citation)
 
 
 
