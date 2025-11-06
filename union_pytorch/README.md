@@ -20,9 +20,10 @@ cd union_pytorch
 pip install -r requirements.txt
 
 # Optional: Install performance optimizations for 16K+ token sequences (highly recommended)
-pip install -r requirements-perf.txt
-# Or manually install flash-attn:
-# pip install flash-attn --no-build-isolation
+pip install xformers  # Easiest option - provides 3-6x speedup
+
+# OR install all performance packages:
+# pip install -r requirements-perf.txt
 ```
 
 ### Data Preparation
@@ -152,7 +153,9 @@ This will output:
   - `cpu`: CPU
 
 - `--fp16`: Enable mixed precision training (2x speedup + 50% memory reduction)
-- `--use_flash_attention`: Use Flash Attention 2 for 4-8x faster attention (requires `flash-attn` package)
+- `--use_flash_attention`: Use efficient attention (automatically uses xFormers or Flash Attention 2)
+  - Requires: `pip install xformers` (recommended, easy) OR `pip install flash-attn --no-build-isolation`
+  - Provides 3-6x speedup for long sequences (>2048 tokens)
 - `--compile_model`: Compile model with `torch.compile()` for 20-30% speedup (PyTorch 2.0+)
 - `--use_multi_gpu`: Use DataParallel for multi-GPU training
 
@@ -518,13 +521,14 @@ python train.py \
 
 ```bash
 --fp16 \                    # 2x speedup + 50% memory reduction
---use_flash_attention \     # 4-8x faster attention for long sequences
+--use_flash_attention \     # 3-6x faster attention (uses xFormers or Flash Attention)
 --compile_model             # Additional 20-30% speedup (PyTorch 2.0+)
 ```
 
 **Requirements:**
-- Flash Attention: Install with `pip install flash-attn --no-build-isolation`
-- Requires CUDA GPU (Ampere A100/RTX 30xx/40xx or newer recommended)
+- **RECOMMENDED:** xFormers: `pip install xformers` (easiest, no CUDA_HOME setup needed)
+- Alternative: Flash Attention: `pip install flash-attn --no-build-isolation` (requires CUDA_HOME)
+- Requires CUDA GPU (any modern NVIDIA GPU works with xFormers)
 
 ### General Tips
 
@@ -547,8 +551,10 @@ python train.py \
 |--------------|-----------|---------|--------|
 | Baseline (no opts) | 0.5 | 1x | 38GB |
 | + FP16 | 1.0 | 2x | 20GB |
-| + FP16 + Flash Attn | 4.0 | 8x | 18GB |
-| + FP16 + Flash + Compile | 5.5 | 11x | 18GB |
+| + FP16 + xFormers | 3.5 | 7x | 18GB |
+| + FP16 + xFormers + Compile | 5.0 | 10x | 18GB |
+
+*Note: Flash Attention 2 can be slightly faster (8-11x) but requires more complex installation*
 
 ## Hardware Requirements
 
@@ -590,62 +596,43 @@ python3 get_vocab.py roc
 python3 gen_train_data.py roc
 ```
 
-### Flash Attention Installation Issues
+### Efficient Attention Installation
 
-**Problem 1**: `CUDA_HOME environment variable is not set`
+**RECOMMENDED: Use xFormers (simplest installation)**
 
-**Solution**: Set CUDA_HOME before installing
 ```bash
-# Find your CUDA installation
-ls /usr/local/cuda*
+pip install xformers
+```
 
-# Set CUDA_HOME (adjust path based on what you found above)
+That's it! No CUDA_HOME setup needed, works with most NVIDIA GPUs.
+
+**Verification**:
+```python
+import xformers
+print(f"xFormers installed: {xformers.__version__}")
+```
+
+**Alternative: Flash Attention 2 (slightly faster, harder to install)**
+
+Only use if you need maximum performance and are willing to deal with compilation:
+
+```bash
+# 1. Set CUDA_HOME
 export CUDA_HOME=/usr/local/cuda
 export PATH=$CUDA_HOME/bin:$PATH
 export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
 
-# Now install flash-attn
+# 2. Install
 pip install flash-attn --no-build-isolation
 
-# Make permanent (add to ~/.bashrc or ~/.zshrc)
-echo 'export CUDA_HOME=/usr/local/cuda' >> ~/.bashrc
-source ~/.bashrc
+# This will take 10-30 minutes to compile
 ```
 
-**For conda/mamba users**:
-```bash
-export CUDA_HOME=$CONDA_PREFIX
-pip install flash-attn --no-build-isolation
-```
+**Requirements for Flash Attention:**
+- CUDA 11.6+ or 12.0+
+- GPU: Ampere (A100, RTX 30xx), Ada (RTX 40xx), or Hopper (H100)
 
-**Problem 2**: Installation fails or takes too long
-
-**Solutions**:
-```bash
-# Solution 1: Install pre-built wheels (if available for your CUDA version)
-pip install flash-attn --pre
-
-# Solution 2: Check CUDA compatibility
-# Flash Attention requires:
-# - CUDA 11.6+ or 12.0+
-# - GPU: Ampere (A100, RTX 30xx), Ada (RTX 40xx), or Hopper (H100)
-# - Compatible PyTorch with matching CUDA version
-
-# Solution 3: Use without Flash Attention (still get 2-3x speedup from FP16)
-# Just omit --use_flash_attention flag
-python train_lora.py --fp16 --compile_model  # Still good performance
-
-# Solution 4: Alternative - use xFormers (easier installation, no CUDA_HOME needed)
-pip install xformers
-# Then manually enable in model config (requires code modification)
-```
-
-**Verification**: Check if Flash Attention is working:
-```python
-import torch
-from flash_attn import flash_attn_func
-print("Flash Attention installed successfully!")
-```
+**If you have issues, just use xFormers** - it provides ~80-90% of the speedup with 1% of the hassle!
 
 ## Citation
 

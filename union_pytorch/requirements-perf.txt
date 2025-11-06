@@ -1,17 +1,19 @@
 # Optional performance optimization packages for training with long sequences (16K+ tokens)
 # These packages can significantly speed up training but require additional setup
 
-# Flash Attention 2 - 4-8x faster attention computation for long sequences
-# Requires: CUDA-compatible GPU (Ampere A100/A6000, Ada RTX 40xx, or Hopper H100 recommended)
-# Install command: pip install flash-attn --no-build-isolation
-flash-attn>=2.3.0
-
-# Alternative: xFormers for efficient attention (easier to install than flash-attn)
+# RECOMMENDED: xFormers for efficient attention (easier to install, no CUDA_HOME issues)
+# Provides 3-6x speedup for long sequences with simpler installation
 # Install command: pip install xformers
-# xformers>=0.0.22
+xformers>=0.0.22
 
-# Triton for optimized CUDA kernels (required by some flash-attn versions)
-triton>=2.1.0
+# Alternative: Flash Attention 2 (slightly faster but harder to install)
+# Requires CUDA_HOME setup and compilation
+# Install command: pip install flash-attn --no-build-isolation
+# Uncomment below if you prefer flash-attn over xformers:
+# flash-attn>=2.3.0
+
+# Triton for optimized CUDA kernels (optional, for additional optimizations)
+# triton>=2.1.0
 
 # Installation instructions:
 # =======================

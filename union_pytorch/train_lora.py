@@ -127,7 +127,7 @@ def get_lora_args():
     parser.add_argument("--fp16", action="store_true",
                         help="Use mixed precision training")
     parser.add_argument("--use_flash_attention", action="store_true",
-                        help="Use Flash Attention 2 for faster attention computation (requires flash-attn package)")
+                        help="Use efficient attention (xFormers or Flash Attention 2). Automatically detects which is available.")
     parser.add_argument("--compile_model", action="store_true",
                         help="Compile model with torch.compile() for PyTorch 2.0+ (can provide 20-30%% speedup)")
 
@@ -646,18 +646,47 @@ def main():
 
     base_model.to(device)
 
-    # Enable Flash Attention if requested
+    # Enable efficient attention if requested (xFormers or Flash Attention)
     if args.use_flash_attention:
+        attention_enabled = False
+
+        # Try xFormers first (easier installation, widely compatible)
         try:
-            # Enable Flash Attention 2 for compatible models
-            if hasattr(base_model, 'encoder') and hasattr(base_model.encoder, 'config'):
-                base_model.encoder.config._attn_implementation = "flash_attention_2"
-                print("Flash Attention 2 enabled for encoder")
-            else:
-                print("Warning: Could not enable Flash Attention - model structure not compatible")
+            import xformers
+            if hasattr(base_model, 'enable_xformers_memory_efficient_attention'):
+                base_model.enable_xformers_memory_efficient_attention()
+                print(f"✓ xFormers memory-efficient attention enabled (version {xformers.__version__})")
+                attention_enabled = True
+            elif hasattr(base_model, 'encoder') and hasattr(base_model.encoder, 'enable_xformers_memory_efficient_attention'):
+                base_model.encoder.enable_xformers_memory_efficient_attention()
+                print(f"✓ xFormers memory-efficient attention enabled for encoder (version {xformers.__version__})")
+                attention_enabled = True
+        except ImportError:
+            print("ℹ️  xFormers not found, trying Flash Attention 2...")
         except Exception as e:
-            print(f"Warning: Could not enable Flash Attention - {e}")
-            print("Make sure flash-attn is installed: pip install flash-attn --no-build-isolation")
+            print(f"⚠️  Could not enable xFormers: {e}")
+
+        # Fallback to Flash Attention 2 if xFormers not available
+        if not attention_enabled:
+            try:
+                import flash_attn
+                if hasattr(base_model, 'encoder') and hasattr(base_model.encoder, 'config'):
+                    base_model.encoder.config._attn_implementation = "flash_attention_2"
+                    print(f"✓ Flash Attention 2 enabled for encoder (version {flash_attn.__version__})")
+                    attention_enabled = True
+                else:
+                    print("⚠️  Model structure not compatible with Flash Attention 2")
+            except ImportError:
+                print("⚠️  Flash Attention 2 not found")
+            except Exception as e:
+                print(f"⚠️  Could not enable Flash Attention 2: {e}")
+
+        if not attention_enabled:
+            print("\n❌ ERROR: --use_flash_attention specified but no efficient attention library found!")
+            print("\nPlease install one of the following:")
+            print("  RECOMMENDED: pip install xformers")
+            print("  ALTERNATIVE: pip install flash-attn --no-build-isolation")
+            print("\nContinuing without efficient attention (training will be slower)...")
 
     # Wrap with LoRA
     print("\nWrapping model with LoRA adapters...")
