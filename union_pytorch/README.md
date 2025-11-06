@@ -463,13 +463,13 @@ python train_lora.py \
     --wp_data_dir /scratch1/tanalvin/Data/WritingPrompts \
     --output_dir ../output \
     --model_type longformer \
-    --max_seq_length 512 \
-    --train_batch_size 8 \
-    --eval_batch_size 16 \
+    --max_seq_length 16384 \
+    --train_batch_size 4 \
+    --eval_batch_size 8 \
     --learning_rate 3e-4 \
     --num_train_epochs 3 \
     --warmup_steps 500 \
-    --gradient_accumulation_steps 3\
+    --gradient_accumulation_steps 8 \
     --logging_steps 100 \
     --save_steps 1000 \
     --eval_steps 2000 \

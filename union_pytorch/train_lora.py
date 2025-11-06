@@ -93,9 +93,9 @@ def get_lora_args():
                         help="Directory for WritingPrompts data (for combined mode)")
     parser.add_argument("--award_data_dir", type=str, default=None,
                         help="Directory for Award-winning data (for combined mode)")
-    parser.add_argument("--wp_has_reconstruction", action="store_true", default=False,
+    parser.add_argument("--wp_has_reconstruction", action="store_true", default=True,
                         help="Enable reconstruction for WritingPrompts in combined mode")
-    parser.add_argument("--award_has_reconstruction", action="store_true", default=False,
+    parser.add_argument("--award_has_reconstruction", action="store_true", default=True,
                         help="Enable reconstruction for Award-winning in combined mode")
     parser.add_argument("--train_data_fraction", type=float, default=1.0,
                         help="Fraction of training data to use (e.g., 0.1 for 10%%, 1.0 for all data)")
