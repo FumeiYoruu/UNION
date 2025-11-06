@@ -88,7 +88,9 @@ def get_lora_args():
                              "For LED/Longformer: ['query', 'value']")
     parser.add_argument("--lora_modules_to_save", type=str, nargs="+",
                         default=None,
-                        help="Additional modules to train besides LoRA (e.g., classifier head)")
+                        help="Additional modules to train besides LoRA. "
+                             "If None, defaults to ['classifier'] or ['classifier', 'lm_head'] with --use_reconstruction. "
+                             "Specify explicitly to override (e.g., 'classifier lm_head layer_poolers')")
     parser.add_argument("--merge_weights", action="store_true",
                         help="Merge LoRA weights with base model after training")
 
@@ -104,10 +106,17 @@ def get_lora_args():
                         help="Directory for WritingPrompts data (for combined mode)")
     parser.add_argument("--award_data_dir", type=str, default=None,
                         help="Directory for Award-winning data (for combined mode)")
-    parser.add_argument("--wp_has_reconstruction", action="store_true", default=True,
-                        help="Enable reconstruction for WritingPrompts in combined mode")
-    parser.add_argument("--award_has_reconstruction", action="store_true", default=True,
-                        help="Enable reconstruction for Award-winning in combined mode")
+    parser.add_argument("--wp_has_reconstruction", action="store_true",
+                        help="Enable reconstruction for WritingPrompts in combined mode (default: enabled, use --no_wp_reconstruction to disable)")
+    parser.add_argument("--no_wp_reconstruction", dest="wp_has_reconstruction", action="store_false",
+                        help="Disable reconstruction for WritingPrompts in combined mode")
+    parser.set_defaults(wp_has_reconstruction=True)
+
+    parser.add_argument("--award_has_reconstruction", action="store_true",
+                        help="Enable reconstruction for Award-winning in combined mode (default: enabled, use --no_award_reconstruction to disable)")
+    parser.add_argument("--no_award_reconstruction", dest="award_has_reconstruction", action="store_false",
+                        help="Disable reconstruction for Award-winning in combined mode")
+    parser.set_defaults(award_has_reconstruction=True)
     parser.add_argument("--train_data_fraction", type=float, default=1.0,
                         help="Fraction of training data to use (e.g., 0.1 for 10%%, 1.0 for all data)")
     parser.add_argument("--lazy_loading", action="store_true",
@@ -201,6 +210,14 @@ def create_lora_model(base_model, args, device):
 
     Returns:
         Model wrapped with LoRA adapters
+
+    Notes:
+        By default, saves the following modules (in addition to LoRA adapters):
+        - 'classifier': Always saved (randomly initialized for the task)
+        - 'lm_head': Saved if --use_reconstruction is enabled
+        - 'layer_poolers': Saved if --use_all_layers is enabled
+
+        Use --lora_modules_to_save to override these defaults.
     """
     # Determine target modules
     if args.lora_target_modules is None:
@@ -208,13 +225,27 @@ def create_lora_model(base_model, args, device):
     else:
         target_modules = args.lora_target_modules
 
+    # Determine modules to save (classifier and optionally lm_head)
+    if args.lora_modules_to_save is None:
+        # Default: always save classifier (randomly initialized for our task)
+        modules_to_save = ["classifier"]
+
+        # Add lm_head if using reconstruction task
+        if args.use_reconstruction:
+            modules_to_save.append("lm_head")
+
+        # Add layer_poolers if using multi-layer pooling
+        if args.use_all_layers:
+            modules_to_save.append("layer_poolers")
+    else:
+        modules_to_save = args.lora_modules_to_save
+
     print(f"\nLoRA Configuration:")
     print(f"  Rank (r): {args.lora_r}")
     print(f"  Alpha: {args.lora_alpha}")
     print(f"  Dropout: {args.lora_dropout}")
     print(f"  Target modules: {target_modules}")
-    if args.lora_modules_to_save:
-        print(f"  Additional trainable modules: {args.lora_modules_to_save}")
+    print(f"  Additional trainable modules: {modules_to_save}")
 
     # Create LoRA config
     lora_config = LoraConfig(
@@ -224,7 +255,7 @@ def create_lora_model(base_model, args, device):
         lora_dropout=args.lora_dropout,
         bias="none",
         task_type=TaskType.SEQ_CLS,  # Sequence classification task
-        modules_to_save=args.lora_modules_to_save,  # Additional modules to train
+        modules_to_save=modules_to_save,  # Additional modules to train
     )
 
     # Wrap model with LoRA

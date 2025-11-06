@@ -469,6 +469,7 @@ python union_pytorch/train.py \
 # Multi-GPU training with DDP (uses torchrun or python -m torch.distributed.run)
 torchrun --nproc_per_node=2 train_lora.py \
     --task_name train \
+    --use_reconstruction \
     --dataset_mode combined \
     --award_data_dir /scratch1/tanalvin/Data/Award-winning \
     --wp_data_dir /scratch1/tanalvin/Data/WritingPrompts \
@@ -482,8 +483,8 @@ torchrun --nproc_per_node=2 train_lora.py \
     --warmup_steps 500 \
     --gradient_accumulation_steps 16 \
     --logging_steps 100 \
-    --save_steps 1000 \
-    --eval_steps 2000 \
+    --save_steps 100 \
+    --eval_steps 500 \
     --lora_r 8 \
     --lora_alpha 16 \
     --lora_dropout 0.1 \
