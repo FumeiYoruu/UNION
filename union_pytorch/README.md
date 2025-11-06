@@ -466,7 +466,7 @@ python union_pytorch/train.py \
 ```
 
 ```bash
-python train_lora.py \
+torchrun --nproc_per_node=2 train_lora.py \
     --task_name train \
     --use_multi_gpu \
      --dataset_mode combined \
