@@ -466,11 +466,11 @@ python union_pytorch/train.py \
 ```
 
 ```bash
+# Multi-GPU training with DDP (uses torchrun or python -m torch.distributed.run)
 torchrun --nproc_per_node=2 train_lora.py \
     --task_name train \
-    --use_multi_gpu \
-     --dataset_mode combined \
-    --award_data_dir /scratch1/tanalvin/Data/Award-winning\
+    --dataset_mode combined \
+    --award_data_dir /scratch1/tanalvin/Data/Award-winning \
     --wp_data_dir /scratch1/tanalvin/Data/WritingPrompts \
     --output_dir ../output \
     --model_type longformer \

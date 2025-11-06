@@ -864,11 +864,13 @@ def main():
     print(f"Gradient checkpointing: {args.gradient_checkpointing}")
     print(f"Mixed precision (FP16): {args.fp16 and device.type == 'cuda'}")
     print(f"Device: {device}")
-    if args.use_multi_gpu and torch.cuda.device_count() > 1:
-        print(f"Multi-GPU: Yes (DataParallel with {torch.cuda.device_count()} GPUs)")
-        print(f"Per-GPU batch size: {args.train_batch_size // torch.cuda.device_count()}")
+    if world_size > 1:
+        print(f"Multi-GPU: Yes (DistributedDataParallel with {world_size} GPUs)")
+        print(f"Per-GPU batch size: {args.train_batch_size}")
+        print(f"Effective global batch size: {args.train_batch_size * world_size}")
     else:
         print(f"Multi-GPU: No")
+    print(f"Model compilation: {args.compile_model}")
     print("=" * 80 + "\n")
 
     # Training loop
