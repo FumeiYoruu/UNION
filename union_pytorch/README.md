@@ -592,27 +592,50 @@ python3 gen_train_data.py roc
 
 ### Flash Attention Installation Issues
 
-**Problem**: `pip install flash-attn` fails or takes too long
+**Problem 1**: `CUDA_HOME environment variable is not set`
+
+**Solution**: Set CUDA_HOME before installing
+```bash
+# Find your CUDA installation
+ls /usr/local/cuda*
+
+# Set CUDA_HOME (adjust path based on what you found above)
+export CUDA_HOME=/usr/local/cuda
+export PATH=$CUDA_HOME/bin:$PATH
+export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
+
+# Now install flash-attn
+pip install flash-attn --no-build-isolation
+
+# Make permanent (add to ~/.bashrc or ~/.zshrc)
+echo 'export CUDA_HOME=/usr/local/cuda' >> ~/.bashrc
+source ~/.bashrc
+```
+
+**For conda/mamba users**:
+```bash
+export CUDA_HOME=$CONDA_PREFIX
+pip install flash-attn --no-build-isolation
+```
+
+**Problem 2**: Installation fails or takes too long
 
 **Solutions**:
 ```bash
-# Solution 1: Install without build isolation
-pip install flash-attn --no-build-isolation
-
-# Solution 2: Install pre-built wheels (if available for your CUDA version)
+# Solution 1: Install pre-built wheels (if available for your CUDA version)
 pip install flash-attn --pre
 
-# Solution 3: Check CUDA compatibility
+# Solution 2: Check CUDA compatibility
 # Flash Attention requires:
 # - CUDA 11.6+ or 12.0+
 # - GPU: Ampere (A100, RTX 30xx), Ada (RTX 40xx), or Hopper (H100)
 # - Compatible PyTorch with matching CUDA version
 
-# Solution 4: Use without Flash Attention (still get 2-3x speedup from FP16)
+# Solution 3: Use without Flash Attention (still get 2-3x speedup from FP16)
 # Just omit --use_flash_attention flag
 python train_lora.py --fp16 --compile_model  # Still good performance
 
-# Solution 5: Alternative - use xFormers (easier installation)
+# Solution 4: Alternative - use xFormers (easier installation, no CUDA_HOME needed)
 pip install xformers
 # Then manually enable in model config (requires code modification)
 ```
