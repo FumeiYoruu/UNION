@@ -31,7 +31,10 @@ from peft import (
 )
 
 # Suppress Longformer/LED attention window padding warnings
-warnings.filterwarnings("ignore", message=".*automatically padded.*attention_window.*")
+warnings.filterwarnings("ignore", category=UserWarning, module="transformers")
+warnings.filterwarnings("ignore", message=".*automatically padded.*")
+warnings.filterwarnings("ignore", message=".*attention.*window.*")
+warnings.filterwarnings("ignore", message=".*Input ids are automatically padded.*")
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -386,15 +389,56 @@ def train_epoch(
                     writer.add_scalar("perf/forward_time_pct", 100 * forward_time / total_time, global_step)
                     writer.add_scalar("perf/backward_time_pct", 100 * backward_time / total_time, global_step)
 
-                progress_bar.set_postfix({
-                    "loss": f"{loss_meter.avg:.4f}",
-                    "cls_loss": f"{cls_loss_meter.avg:.4f}",
-                    "lr": f"{scheduler.get_last_lr()[0]:.2e}",
-                    "data%": f"{100*data_time/total_time:.0f}" if total_time > 0 else "0",
-                })
+                # Flush to disk so tensorboard shows updates in real-time
+                writer.flush()
 
-            # Save checkpoint
-            if global_step % args.save_steps == 0:
+            # Update progress bar after every gradient accumulation step
+            progress_bar.set_postfix({
+                "loss": f"{loss_meter.avg:.4f}",
+                "cls_loss": f"{cls_loss_meter.avg:.4f}",
+                "lr": f"{scheduler.get_last_lr()[0]:.2e}",
+                "data%": f"{100*data_time/total_time:.0f}" if total_time > 0 else "0",
+            })
+
+        # Save checkpoint (moved outside gradient accumulation block)
+        if (step + 1) % args.gradient_accumulation_steps == 0 and global_step % args.save_steps == 0:
+            print(f"\nSaving checkpoint at step {global_step}...")
+            save_lora_checkpoint(
+                model,
+                optimizer,
+                scheduler,
+                epoch,
+                global_step,
+                args.output_dir,
+                prefix="checkpoint",
+                keep_last_n=args.keep_last_n_checkpoints,
+            )
+
+        # Evaluate during training (moved outside gradient accumulation block)
+        if (step + 1) % args.gradient_accumulation_steps == 0 and args.eval_steps > 0 and global_step % args.eval_steps == 0 and eval_dataloader is not None:
+            print(f"\n{'='*80}")
+            print(f"Evaluating at step {global_step}...")
+            print('='*80)
+
+            eval_metrics = evaluate(model, eval_dataloader, device)
+
+            print(f"Validation metrics (step {global_step}):")
+            print(f"  Loss: {eval_metrics['loss']:.4f}")
+            print(f"  Accuracy: {eval_metrics['accuracy']:.4f}")
+            print(f"  Precision: {eval_metrics['precision']:.4f}")
+            print(f"  Recall: {eval_metrics['recall']:.4f}")
+            print(f"  F1: {eval_metrics['f1']:.4f}")
+
+            # Log to tensorboard
+            if writer is not None:
+                for key, value in eval_metrics.items():
+                    writer.add_scalar(f"eval/{key}", value, global_step)
+                writer.flush()  # Flush to disk immediately
+
+            # Save best model during training
+            if eval_metrics["f1"] > best_f1:
+                best_f1 = eval_metrics["f1"]
+                print(f"  New best F1: {best_f1:.4f} - Saving checkpoint...")
                 save_lora_checkpoint(
                     model,
                     optimizer,
@@ -402,49 +446,14 @@ def train_epoch(
                     epoch,
                     global_step,
                     args.output_dir,
-                    prefix="checkpoint",
-                    keep_last_n=args.keep_last_n_checkpoints,
+                    prefix="best",
+                    keep_last_n=0,  # Keep all best checkpoints
                 )
 
-            # Evaluate during training
-            if args.eval_steps > 0 and global_step % args.eval_steps == 0 and eval_dataloader is not None:
-                print(f"\n{'='*80}")
-                print(f"Evaluating at step {global_step}...")
-                print('='*80)
+            print('='*80 + '\n')
 
-                eval_metrics = evaluate(model, eval_dataloader, device)
-
-                print(f"Validation metrics (step {global_step}):")
-                print(f"  Loss: {eval_metrics['loss']:.4f}")
-                print(f"  Accuracy: {eval_metrics['accuracy']:.4f}")
-                print(f"  Precision: {eval_metrics['precision']:.4f}")
-                print(f"  Recall: {eval_metrics['recall']:.4f}")
-                print(f"  F1: {eval_metrics['f1']:.4f}")
-
-                # Log to tensorboard
-                if writer is not None:
-                    for key, value in eval_metrics.items():
-                        writer.add_scalar(f"eval/{key}", value, global_step)
-
-                # Save best model during training
-                if eval_metrics["f1"] > best_f1:
-                    best_f1 = eval_metrics["f1"]
-                    print(f"  New best F1: {best_f1:.4f} - Saving checkpoint...")
-                    save_lora_checkpoint(
-                        model,
-                        optimizer,
-                        scheduler,
-                        epoch,
-                        global_step,
-                        args.output_dir,
-                        prefix="best",
-                        keep_last_n=0,  # Keep all best checkpoints
-                    )
-
-                print('='*80 + '\n')
-
-                # Set model back to training mode
-                model.train()
+            # Set model back to training mode
+            model.train()
 
         # Reset timer for next iteration
         step_start = time.time()
@@ -812,7 +821,10 @@ def main():
             print(f"Warning: --fp16 specified but device is {device.type}. FP16 training disabled.")
 
     # Setup tensorboard
-    writer = SummaryWriter(log_dir=os.path.join(args.output_dir, "logs"))
+    tensorboard_log_dir = os.path.join(args.output_dir, "logs")
+    writer = SummaryWriter(log_dir=tensorboard_log_dir)
+    print(f"\nTensorBoard logging to: {tensorboard_log_dir}")
+    print(f"Start TensorBoard with: tensorboard --logdir {tensorboard_log_dir}\n")
 
     # Print training info
     print("\n" + "=" * 80)
@@ -893,6 +905,7 @@ def main():
         if writer is not None:
             for key, value in eval_metrics.items():
                 writer.add_scalar(f"eval/{key}", value, global_step)
+            writer.flush()  # Flush to disk immediately
 
         # Save best model
         if eval_metrics["f1"] > best_f1:
