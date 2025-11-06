@@ -289,7 +289,13 @@ def train_epoch(
         # Forward pass
         outputs = model(**batch)
 
-        loss = outputs["loss"]
+        # Handle DataParallel output (may be dict of tensors from multiple GPUs)
+        if isinstance(model, torch.nn.DataParallel):
+            # DataParallel returns dict with tensors from each GPU
+            # Need to mean the loss across GPUs
+            loss = outputs["loss"].mean()
+        else:
+            loss = outputs["loss"]
 
         # Backward pass with gradient accumulation
         if args.gradient_accumulation_steps > 1:
@@ -297,12 +303,14 @@ def train_epoch(
 
         loss.backward()
 
-        # Update meters
+        # Update meters (handle DataParallel by taking mean)
         loss_meter.update(loss.item() * args.gradient_accumulation_steps)
         if "classification_loss" in outputs:
-            cls_loss_meter.update(outputs["classification_loss"].item())
+            cls_loss = outputs["classification_loss"].mean() if isinstance(model, torch.nn.DataParallel) else outputs["classification_loss"]
+            cls_loss_meter.update(cls_loss.item())
         if "reconstruction_loss" in outputs:
-            rec_loss_meter.update(outputs["reconstruction_loss"].item())
+            rec_loss = outputs["reconstruction_loss"].mean() if isinstance(model, torch.nn.DataParallel) else outputs["reconstruction_loss"]
+            rec_loss_meter.update(rec_loss.item())
 
         # Update weights
         if (step + 1) % args.gradient_accumulation_steps == 0:
@@ -356,8 +364,13 @@ def evaluate(model, dataloader, device):
 
             outputs = model(**batch)
 
-            loss = outputs["loss"]
-            logits = outputs["logits"]
+            # Handle DataParallel output
+            if isinstance(model, torch.nn.DataParallel):
+                loss = outputs["loss"].mean()
+                logits = outputs["logits"]
+            else:
+                loss = outputs["loss"]
+                logits = outputs["logits"]
 
             loss_meter.update(loss.item())
 
@@ -517,14 +530,18 @@ def main():
     )
 
     # Create base model
+    # Note: Gradient checkpointing should be disabled for LoRA since base model is frozen
     print(f"Creating base model: {args.model_type} - {args.model_name}")
+    if args.gradient_checkpointing:
+        print("Warning: Gradient checkpointing is not recommended with LoRA (base model is frozen)")
+        print("Disabling gradient checkpointing...")
     base_model = create_model(
         model_type=args.model_type,
         model_name=args.model_name,
         use_all_layers=args.use_all_layers,
         use_reconstruction=args.use_reconstruction,
         reconstruction_weight=args.reconstruction_weight,
-        gradient_checkpointing=args.gradient_checkpointing,
+        gradient_checkpointing=False,  # Disable for LoRA
     )
 
     # Load initial weights if provided (before wrapping with LoRA)
