@@ -464,7 +464,7 @@ python train_lora.py \
     --output_dir ../output \
     --model_type longformer \
     --max_seq_length 16384 \
-    --train_batch_size 4 \
+    --train_batch_size 2 \
     --eval_batch_size 8 \
     --learning_rate 3e-4 \
     --num_train_epochs 3 \
@@ -480,6 +480,7 @@ python train_lora.py \
     --seed 42 \
     --lazy_loading \
     --train_data_fraction 0.1 \
+    --fp16
 ```
 
 

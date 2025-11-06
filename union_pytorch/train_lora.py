@@ -284,8 +284,18 @@ def train_epoch(
 
     progress_bar = tqdm(dataloader, desc=f"Epoch {epoch}")
 
+    # Track time breakdown for performance debugging
+    data_time = 0
+    forward_time = 0
+    backward_time = 0
+    step_start = time.time()
+
     for step, batch in enumerate(progress_bar):
+        # Track data loading time
+        data_time += time.time() - step_start
+
         # Move batch to device
+        forward_start = time.time()
         batch = {k: v.to(device) for k, v in batch.items()}
 
         # Forward pass
@@ -299,11 +309,16 @@ def train_epoch(
         else:
             loss = outputs["loss"]
 
+        # Track forward pass time
+        forward_time += time.time() - forward_start
+
         # Backward pass with gradient accumulation
+        backward_start = time.time()
         if args.gradient_accumulation_steps > 1:
             loss = loss / args.gradient_accumulation_steps
 
         loss.backward()
+        backward_time += time.time() - backward_start
 
         # Update meters (handle DataParallel by taking mean)
         loss_meter.update(loss.item() * args.gradient_accumulation_steps)
@@ -330,10 +345,18 @@ def train_epoch(
                     writer.add_scalar("train/rec_loss", rec_loss_meter.avg, global_step)
                 writer.add_scalar("train/lr", scheduler.get_last_lr()[0], global_step)
 
+                # Log timing breakdown
+                total_time = data_time + forward_time + backward_time
+                if total_time > 0:
+                    writer.add_scalar("perf/data_time_pct", 100 * data_time / total_time, global_step)
+                    writer.add_scalar("perf/forward_time_pct", 100 * forward_time / total_time, global_step)
+                    writer.add_scalar("perf/backward_time_pct", 100 * backward_time / total_time, global_step)
+
                 progress_bar.set_postfix({
                     "loss": f"{loss_meter.avg:.4f}",
                     "cls_loss": f"{cls_loss_meter.avg:.4f}",
                     "lr": f"{scheduler.get_last_lr()[0]:.2e}",
+                    "data%": f"{100*data_time/total_time:.0f}" if total_time > 0 else "0",
                 })
 
             # Save checkpoint
@@ -387,6 +410,9 @@ def train_epoch(
 
                 # Set model back to training mode
                 model.train()
+
+        # Reset timer for next iteration
+        step_start = time.time()
 
     return global_step, best_f1
 
@@ -554,20 +580,27 @@ def main():
     eval_dataset = create_dataset(args, tokenizer, mode="dev")
 
     # Create dataloaders
+    # Use more workers for faster data loading (8-16 recommended for modern systems)
+    # Use persistent_workers to avoid recreating workers each epoch
+    num_workers = 8 if not args.lazy_loading else 4  # Fewer workers for lazy loading
     train_dataloader = DataLoader(
         train_dataset,
         batch_size=args.train_batch_size,
         shuffle=True,
-        num_workers=4,
+        num_workers=num_workers,
         pin_memory=True if device.type == "cuda" else False,
+        persistent_workers=True if num_workers > 0 else False,
+        prefetch_factor=2,  # Prefetch 2 batches per worker
     )
 
     eval_dataloader = DataLoader(
         eval_dataset,
         batch_size=args.eval_batch_size,
         shuffle=False,
-        num_workers=4,
+        num_workers=num_workers,
         pin_memory=True if device.type == "cuda" else False,
+        persistent_workers=True if num_workers > 0 else False,
+        prefetch_factor=2,
     )
 
     # Create base model
