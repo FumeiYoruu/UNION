@@ -272,6 +272,8 @@ def train_epoch(
     global_step,
     args,
     writer,
+    eval_dataloader=None,
+    best_f1=0.0,
 ):
     """Train for one epoch."""
     model.train()
@@ -347,7 +349,46 @@ def train_epoch(
                     keep_last_n=args.keep_last_n_checkpoints,
                 )
 
-    return global_step
+            # Evaluate during training
+            if args.eval_steps > 0 and global_step % args.eval_steps == 0 and eval_dataloader is not None:
+                print(f"\n{'='*80}")
+                print(f"Evaluating at step {global_step}...")
+                print('='*80)
+
+                eval_metrics = evaluate(model, eval_dataloader, device)
+
+                print(f"Validation metrics (step {global_step}):")
+                print(f"  Loss: {eval_metrics['loss']:.4f}")
+                print(f"  Accuracy: {eval_metrics['accuracy']:.4f}")
+                print(f"  Precision: {eval_metrics['precision']:.4f}")
+                print(f"  Recall: {eval_metrics['recall']:.4f}")
+                print(f"  F1: {eval_metrics['f1']:.4f}")
+
+                # Log to tensorboard
+                for key, value in eval_metrics.items():
+                    writer.add_scalar(f"eval/{key}", value, global_step)
+
+                # Save best model during training
+                if eval_metrics["f1"] > best_f1:
+                    best_f1 = eval_metrics["f1"]
+                    print(f"  New best F1: {best_f1:.4f} - Saving checkpoint...")
+                    save_lora_checkpoint(
+                        model,
+                        optimizer,
+                        scheduler,
+                        epoch,
+                        global_step,
+                        args.output_dir,
+                        prefix="best",
+                        keep_last_n=0,  # Keep all best checkpoints
+                    )
+
+                print('='*80 + '\n')
+
+                # Set model back to training mode
+                model.train()
+
+    return global_step, best_f1
 
 
 def evaluate(model, dataloader, device):
@@ -652,8 +693,8 @@ def main():
         print(f"\nEpoch {epoch + 1}/{args.num_train_epochs}")
         print("-" * 80)
 
-        # Train
-        global_step = train_epoch(
+        # Train (with optional in-training evaluation)
+        global_step, best_f1 = train_epoch(
             model,
             train_dataloader,
             optimizer,
@@ -663,13 +704,17 @@ def main():
             global_step,
             args,
             writer,
+            eval_dataloader=eval_dataloader,
+            best_f1=best_f1,
         )
 
-        # Evaluate
-        print("\nEvaluating...")
+        # Evaluate at end of epoch
+        print(f"\n{'='*80}")
+        print(f"End of Epoch {epoch + 1} - Evaluating...")
+        print('='*80)
         eval_metrics = evaluate(model, eval_dataloader, device)
 
-        print(f"Validation metrics:")
+        print(f"Validation metrics (end of epoch {epoch + 1}):")
         print(f"  Loss: {eval_metrics['loss']:.4f}")
         print(f"  Accuracy: {eval_metrics['accuracy']:.4f}")
         print(f"  Precision: {eval_metrics['precision']:.4f}")
@@ -683,7 +728,7 @@ def main():
         # Save best model
         if eval_metrics["f1"] > best_f1:
             best_f1 = eval_metrics["f1"]
-            print(f"New best F1: {best_f1:.4f}")
+            print(f"  New best F1: {best_f1:.4f} - Saving checkpoint...")
             save_lora_checkpoint(
                 model,
                 optimizer,
@@ -694,6 +739,8 @@ def main():
                 prefix="best",
                 keep_last_n=0,  # Keep all best checkpoints
             )
+
+        print('='*80)
 
         # Save epoch checkpoint
         save_lora_checkpoint(

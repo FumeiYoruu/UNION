@@ -464,22 +464,22 @@ python train_lora.py \
     --output_dir ../output \
     --model_type longformer \
     --max_seq_length 512 \
-    --train_batch_size 2 \
-    --eval_batch_size 8 \
+    --train_batch_size 8 \
+    --eval_batch_size 16 \
     --learning_rate 3e-4 \
     --num_train_epochs 3 \
     --warmup_steps 500 \
-    --gradient_accumulation_steps 1 \
+    --gradient_accumulation_steps 3\
     --logging_steps 100 \
-    --save_steps 500 \
+    --save_steps 1000 \
+    --eval_steps 2000 \
     --lora_r 8 \
     --lora_alpha 16 \
     --lora_dropout 0.1 \
     --device cuda \
-    --seed 42
+    --seed 42 \
     --lazy_loading \
     --train_data_fraction 0.1 \
-    -—gradient_checkpointing
 ```
 
 
