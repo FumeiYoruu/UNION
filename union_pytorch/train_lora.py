@@ -15,6 +15,7 @@ import sys
 import time
 from tqdm import tqdm
 import argparse
+import warnings
 
 import torch
 from torch.utils.data import DataLoader
@@ -28,6 +29,9 @@ from peft import (
     PeftModel,
     prepare_model_for_kbit_training,
 )
+
+# Suppress Longformer/LED attention window padding warnings
+warnings.filterwarnings("ignore", message=".*automatically padded.*attention_window.*")
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -111,7 +115,7 @@ def get_lora_args():
                         choices=["dynamic", "bucket", "fixed"],
                         help="Padding strategy: 'dynamic' (longest in batch), 'bucket' (predefined buckets), 'fixed' (max_seq_length)")
     parser.add_argument("--padding_buckets", type=int, nargs="+",
-                        default=[2048, 4096, 8192, 16384],
+                        default=[1024,2048, 4096, 8192, 16384],
                         help="Bucket sizes for bucket padding strategy")
 
     # Training arguments

@@ -12,6 +12,7 @@ import sys
 import time
 from tqdm import tqdm
 import argparse
+import warnings
 
 import torch
 import torch.distributed as dist
@@ -26,6 +27,9 @@ from peft import (
     PeftModel,
     prepare_model_for_kbit_training,
 )
+
+# Suppress Longformer/LED attention window padding warnings
+warnings.filterwarnings("ignore", message=".*automatically padded.*attention_window.*")
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
