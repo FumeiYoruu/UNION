@@ -74,7 +74,7 @@ def get_lora_args():
                         default=None,
                         help="Target modules for LoRA. If None, uses default for model type. "
                              "For BERT: ['query', 'value'], "
-                             "For Longformer: ['q_proj', 'v_proj']")
+                             "For LED/Longformer: ['query', 'value']")
     parser.add_argument("--lora_modules_to_save", type=str, nargs="+",
                         default=None,
                         help="Additional modules to train besides LoRA (e.g., classifier head)")
@@ -163,8 +163,9 @@ def get_default_lora_target_modules(model_type):
         # BERT uses 'query' and 'value' in attention layers
         return ["query", "value"]
     elif model_type == "longformer":
-        # LED/Longformer uses 'q_proj' and 'v_proj'
-        return ["q_proj", "v_proj"]
+        # LED encoder uses 'query' and 'value' (nested in longformer_self_attn)
+        # Module paths: encoder.layers.X.self_attn.longformer_self_attn.query/value
+        return ["query", "value"]
     else:
         # Default fallback
         return ["query", "value"]
