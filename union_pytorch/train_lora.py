@@ -582,7 +582,7 @@ def main():
     # Create dataloaders
     # Use more workers for faster data loading (8-16 recommended for modern systems)
     # Use persistent_workers to avoid recreating workers each epoch
-    num_workers = 8 if not args.lazy_loading else 4  # Fewer workers for lazy loading
+    num_workers = 32 if not args.lazy_loading else 32  # Fewer workers for lazy loading
     train_dataloader = DataLoader(
         train_dataset,
         batch_size=args.train_batch_size,
