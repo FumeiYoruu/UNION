@@ -17,6 +17,12 @@ from tqdm import tqdm
 import argparse
 import warnings
 
+# Suppress Longformer/LED attention window padding warnings BEFORE importing transformers
+warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore", message=".*automatically padded.*")
+warnings.filterwarnings("ignore", message=".*attention.*window.*")
+warnings.filterwarnings("ignore", message=".*Input ids are automatically padded.*")
+
 import torch
 from torch.utils.data import DataLoader
 from torch.nn.parallel import DataParallel
@@ -29,12 +35,6 @@ from peft import (
     PeftModel,
     prepare_model_for_kbit_training,
 )
-
-# Suppress Longformer/LED attention window padding warnings
-warnings.filterwarnings("ignore", category=UserWarning, module="transformers")
-warnings.filterwarnings("ignore", message=".*automatically padded.*")
-warnings.filterwarnings("ignore", message=".*attention.*window.*")
-warnings.filterwarnings("ignore", message=".*Input ids are automatically padded.*")
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -319,19 +319,22 @@ def train_epoch(
         batch = {k: v.to(device) for k, v in batch.items()}
 
         # Forward pass with optional mixed precision
-        if scaler is not None:
-            with torch.amp.autocast('cuda'):
+        # Suppress attention window warnings during forward pass
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning)
+            if scaler is not None:
+                with torch.amp.autocast('cuda'):
+                    outputs = model(**batch)
+                    loss = outputs["loss"]
+                    # DataParallel returns a vector of losses (one per GPU), need to mean them
+                    if loss.dim() > 0:
+                        loss = loss.mean()
+            else:
                 outputs = model(**batch)
                 loss = outputs["loss"]
                 # DataParallel returns a vector of losses (one per GPU), need to mean them
                 if loss.dim() > 0:
                     loss = loss.mean()
-        else:
-            outputs = model(**batch)
-            loss = outputs["loss"]
-            # DataParallel returns a vector of losses (one per GPU), need to mean them
-            if loss.dim() > 0:
-                loss = loss.mean()
 
         # Track forward pass time
         forward_time += time.time() - forward_start
@@ -374,6 +377,9 @@ def train_epoch(
             optimizer.zero_grad()
             global_step += 1
 
+            # Calculate timing breakdown (needed for both logging and progress bar)
+            total_time = data_time + forward_time + backward_time
+
             # Logging
             if global_step % args.logging_steps == 0 and writer is not None:
                 writer.add_scalar("train/loss", loss_meter.avg, global_step)
@@ -383,7 +389,6 @@ def train_epoch(
                 writer.add_scalar("train/lr", scheduler.get_last_lr()[0], global_step)
 
                 # Log timing breakdown
-                total_time = data_time + forward_time + backward_time
                 if total_time > 0:
                     writer.add_scalar("perf/data_time_pct", 100 * data_time / total_time, global_step)
                     writer.add_scalar("perf/forward_time_pct", 100 * forward_time / total_time, global_step)
@@ -473,7 +478,10 @@ def evaluate(model, dataloader, device):
         for batch in tqdm(dataloader, desc="Evaluating"):
             batch = {k: v.to(device) for k, v in batch.items()}
 
-            outputs = model(**batch)
+            # Suppress attention window warnings during forward pass
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=UserWarning)
+                outputs = model(**batch)
 
             loss = outputs["loss"]
             # DataParallel returns a vector of losses (one per GPU), need to mean them
