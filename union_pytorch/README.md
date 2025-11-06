@@ -454,6 +454,35 @@ python union_pytorch/train.py \
     --fp16
 ```
 
+```bash
+python train_lora.py \
+    --task_name train \
+    --use_multi_gpu \
+     --dataset_mode combined \
+    --award_data_dir /scratch1/tanalvin/Data/Award-winning\
+    --wp_data_dir /scratch1/tanalvin/Data/WritingPrompts \
+    --output_dir ../output \
+    --model_type longformer \
+    --max_seq_length 512 \
+    --train_batch_size 2 \
+    --eval_batch_size 8 \
+    --learning_rate 3e-4 \
+    --num_train_epochs 3 \
+    --warmup_steps 500 \
+    --gradient_accumulation_steps 1 \
+    --logging_steps 100 \
+    --save_steps 500 \
+    --lora_r 8 \
+    --lora_alpha 16 \
+    --lora_dropout 0.1 \
+    --device cuda \
+    --seed 42
+    --lazy_loading \
+    --train_data_fraction 0.1 \
+    -—gradient_checkpointing
+```
+
+
 **If training gets interrupted:**
 ```bash
 # Find the latest checkpoint
