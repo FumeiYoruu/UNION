@@ -34,7 +34,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import get_args
 from models import create_model
-from data import StoryDataset, CombinedDataset
+from data import StoryDataset, CombinedDataset, DataCollatorWithDynamicPadding, DataCollatorWithFixedBuckets
 from utils import (
     set_seed,
     get_device,
@@ -105,6 +105,14 @@ def get_lora_args():
                         help="Fraction of training data to use (e.g., 0.1 for 10%%, 1.0 for all data)")
     parser.add_argument("--lazy_loading", action="store_true",
                         help="Use lazy loading: tokenize data on-the-fly instead of pre-tokenizing")
+    parser.add_argument("--dynamic_padding", action="store_true",
+                        help="Use dynamic padding: pad to longest in batch instead of max_seq_length (RECOMMENDED for varying lengths)")
+    parser.add_argument("--padding_strategy", type=str, default="dynamic",
+                        choices=["dynamic", "bucket", "fixed"],
+                        help="Padding strategy: 'dynamic' (longest in batch), 'bucket' (predefined buckets), 'fixed' (max_seq_length)")
+    parser.add_argument("--padding_buckets", type=int, nargs="+",
+                        default=[2048, 4096, 8192, 16384],
+                        help="Bucket sizes for bucket padding strategy")
 
     # Training arguments
     parser.add_argument("--task_name", type=str, required=True,
@@ -305,12 +313,18 @@ def train_epoch(
 
         # Forward pass with optional mixed precision
         if scaler is not None:
-            with torch.cuda.amp.autocast():
+            with torch.amp.autocast('cuda'):
                 outputs = model(**batch)
                 loss = outputs["loss"]
+                # DataParallel returns a vector of losses (one per GPU), need to mean them
+                if loss.dim() > 0:
+                    loss = loss.mean()
         else:
             outputs = model(**batch)
             loss = outputs["loss"]
+            # DataParallel returns a vector of losses (one per GPU), need to mean them
+            if loss.dim() > 0:
+                loss = loss.mean()
 
         # Track forward pass time
         forward_time += time.time() - forward_start
@@ -329,9 +343,15 @@ def train_epoch(
         # Update meters
         loss_meter.update(loss.item() * args.gradient_accumulation_steps)
         if "classification_loss" in outputs:
-            cls_loss_meter.update(outputs["classification_loss"].item())
+            cls_loss = outputs["classification_loss"]
+            if cls_loss.dim() > 0:
+                cls_loss = cls_loss.mean()
+            cls_loss_meter.update(cls_loss.item())
         if "reconstruction_loss" in outputs:
-            rec_loss_meter.update(outputs["reconstruction_loss"].item())
+            rec_loss = outputs["reconstruction_loss"]
+            if rec_loss.dim() > 0:
+                rec_loss = rec_loss.mean()
+            rec_loss_meter.update(rec_loss.item())
 
         # Update weights
         if (step + 1) % args.gradient_accumulation_steps == 0:
@@ -443,6 +463,10 @@ def evaluate(model, dataloader, device):
             outputs = model(**batch)
 
             loss = outputs["loss"]
+            # DataParallel returns a vector of losses (one per GPU), need to mean them
+            if loss.dim() > 0:
+                loss = loss.mean()
+
             logits = outputs["logits"]
 
             loss_meter.update(loss.item())
@@ -596,6 +620,23 @@ def main():
     # Use persistent_workers to avoid recreating workers each epoch
     num_workers = 32 if not args.lazy_loading else 32
 
+    # Setup padding collator
+    collate_fn = None
+    if args.padding_strategy == "dynamic":
+        collate_fn = DataCollatorWithDynamicPadding(
+            tokenizer=tokenizer,
+            pad_to_multiple_of=8  # For tensor cores efficiency
+        )
+        print("Using dynamic padding (pads to longest in batch, multiple of 8)")
+    elif args.padding_strategy == "bucket":
+        collate_fn = DataCollatorWithFixedBuckets(
+            tokenizer=tokenizer,
+            buckets=args.padding_buckets
+        )
+        print(f"Using bucket padding with buckets: {args.padding_buckets}")
+    else:
+        print("Using fixed padding (max_seq_length)")
+
     train_dataloader = DataLoader(
         train_dataset,
         batch_size=args.train_batch_size,
@@ -604,6 +645,7 @@ def main():
         pin_memory=True if device.type == "cuda" else False,
         persistent_workers=True if num_workers > 0 else False,
         prefetch_factor=2,  # Prefetch 2 batches per worker
+        collate_fn=collate_fn,
     )
 
     eval_dataloader = DataLoader(
@@ -614,6 +656,7 @@ def main():
         pin_memory=True if device.type == "cuda" else False,
         persistent_workers=True if num_workers > 0 else False,
         prefetch_factor=2,
+        collate_fn=collate_fn,
     )
 
     # Create base model
