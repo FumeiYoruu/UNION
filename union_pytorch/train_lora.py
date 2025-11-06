@@ -126,6 +126,10 @@ def get_lora_args():
                         help="Enable gradient checkpointing to reduce memory usage")
     parser.add_argument("--fp16", action="store_true",
                         help="Use mixed precision training")
+    parser.add_argument("--use_flash_attention", action="store_true",
+                        help="Use Flash Attention 2 for faster attention computation (requires flash-attn package)")
+    parser.add_argument("--compile_model", action="store_true",
+                        help="Compile model with torch.compile() for PyTorch 2.0+ (can provide 20-30%% speedup)")
 
     # Logging and saving
     parser.add_argument("--logging_steps", type=int, default=100,
@@ -272,6 +276,7 @@ def train_epoch(
     global_step,
     args,
     writer,
+    scaler=None,
     eval_dataloader=None,
     best_f1=0.0,
 ):
@@ -298,16 +303,22 @@ def train_epoch(
         forward_start = time.time()
         batch = {k: v.to(device) for k, v in batch.items()}
 
-        # Forward pass
-        outputs = model(**batch)
-
-        # Handle DataParallel output (may be dict of tensors from multiple GPUs)
-        if isinstance(model, torch.nn.DataParallel):
-            # DataParallel returns dict with tensors from each GPU
-            # Need to mean the loss across GPUs
-            loss = outputs["loss"].mean()
+        # Forward pass with optional mixed precision
+        if scaler is not None:
+            with torch.cuda.amp.autocast():
+                outputs = model(**batch)
+                # Handle DataParallel output
+                if isinstance(model, torch.nn.DataParallel):
+                    loss = outputs["loss"].mean()
+                else:
+                    loss = outputs["loss"]
         else:
-            loss = outputs["loss"]
+            outputs = model(**batch)
+            # Handle DataParallel output
+            if isinstance(model, torch.nn.DataParallel):
+                loss = outputs["loss"].mean()
+            else:
+                loss = outputs["loss"]
 
         # Track forward pass time
         forward_time += time.time() - forward_start
@@ -317,7 +328,10 @@ def train_epoch(
         if args.gradient_accumulation_steps > 1:
             loss = loss / args.gradient_accumulation_steps
 
-        loss.backward()
+        if scaler is not None:
+            scaler.scale(loss).backward()
+        else:
+            loss.backward()
         backward_time += time.time() - backward_start
 
         # Update meters (handle DataParallel by taking mean)
@@ -331,8 +345,14 @@ def train_epoch(
 
         # Update weights
         if (step + 1) % args.gradient_accumulation_steps == 0:
-            torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
-            optimizer.step()
+            if scaler is not None:
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
+                optimizer.step()
             scheduler.step()
             optimizer.zero_grad()
             global_step += 1
@@ -626,6 +646,19 @@ def main():
 
     base_model.to(device)
 
+    # Enable Flash Attention if requested
+    if args.use_flash_attention:
+        try:
+            # Enable Flash Attention 2 for compatible models
+            if hasattr(base_model, 'encoder') and hasattr(base_model.encoder, 'config'):
+                base_model.encoder.config._attn_implementation = "flash_attention_2"
+                print("Flash Attention 2 enabled for encoder")
+            else:
+                print("Warning: Could not enable Flash Attention - model structure not compatible")
+        except Exception as e:
+            print(f"Warning: Could not enable Flash Attention - {e}")
+            print("Make sure flash-attn is installed: pip install flash-attn --no-build-isolation")
+
     # Wrap with LoRA
     print("\nWrapping model with LoRA adapters...")
     model = create_lora_model(base_model, args, device)
@@ -638,6 +671,18 @@ def main():
         print(f"Effective batch size: {args.train_batch_size} (split across {torch.cuda.device_count()} GPUs)")
     elif args.use_multi_gpu and torch.cuda.device_count() <= 1:
         print(f"\nWarning: --use_multi_gpu specified but only {torch.cuda.device_count()} GPU available. Using single GPU.")
+
+    # Compile model for PyTorch 2.0+ (can provide significant speedup)
+    if args.compile_model:
+        try:
+            import torch._dynamo
+            torch._dynamo.config.suppress_errors = True
+            print("\nCompiling model with torch.compile()...")
+            model = torch.compile(model, mode="reduce-overhead")
+            print("Model compilation successful (first few steps will be slower during compilation)")
+        except Exception as e:
+            print(f"Warning: Could not compile model - {e}")
+            print("torch.compile() requires PyTorch 2.0+")
 
     # Calculate training steps
     num_update_steps_per_epoch = len(train_dataloader) // args.gradient_accumulation_steps
@@ -680,6 +725,15 @@ def main():
         else:
             print(f"Warning: training_state.pt not found, starting fresh optimizer/scheduler\n")
 
+    # Setup mixed precision training
+    scaler = None
+    if args.fp16:
+        if device.type == "cuda":
+            scaler = torch.cuda.amp.GradScaler()
+            print("Mixed precision (FP16) training enabled")
+        else:
+            print(f"Warning: --fp16 specified but device is {device.type}. FP16 training disabled.")
+
     # Setup tensorboard
     writer = SummaryWriter(log_dir=os.path.join(args.output_dir, "logs"))
 
@@ -710,6 +764,7 @@ def main():
     print(f"Reconstruction weight: {args.reconstruction_weight}")
     print(f"Use all layers: {args.use_all_layers}")
     print(f"Gradient checkpointing: {args.gradient_checkpointing}")
+    print(f"Mixed precision (FP16): {args.fp16 and device.type == 'cuda'}")
     print(f"Device: {device}")
     if args.use_multi_gpu and torch.cuda.device_count() > 1:
         print(f"Multi-GPU: Yes (DataParallel with {torch.cuda.device_count()} GPUs)")
@@ -737,6 +792,7 @@ def main():
             global_step,
             args,
             writer,
+            scaler=scaler,
             eval_dataloader=eval_dataloader,
             best_f1=best_f1,
         )

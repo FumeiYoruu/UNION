@@ -469,7 +469,7 @@ python train_lora.py \
     --learning_rate 3e-4 \
     --num_train_epochs 3 \
     --warmup_steps 500 \
-    --gradient_accumulation_steps 8 \
+    --gradient_accumulation_steps 16 \
     --logging_steps 100 \
     --save_steps 1000 \
     --eval_steps 2000 \
@@ -480,7 +480,9 @@ python train_lora.py \
     --seed 42 \
     --lazy_loading \
     --train_data_fraction 0.1 \
-    --fp16
+    --fp16 \
+    --use_flash_attention \
+    --compile_model
 ```
 
 
