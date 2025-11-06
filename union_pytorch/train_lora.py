@@ -704,7 +704,6 @@ def main():
     # Compile model for PyTorch 2.0+ (can provide significant speedup)
     if args.compile_model:
         try:
-            import torch._dynamo
             torch._dynamo.config.suppress_errors = True
             print("\nCompiling model with torch.compile()...")
             model = torch.compile(model, mode="reduce-overhead")
