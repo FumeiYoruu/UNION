@@ -129,13 +129,15 @@ class UnionClassifier(nn.Module):
 
     def forward(
         self,
-        input_ids: torch.Tensor,
-        attention_mask: torch.Tensor,
+        input_ids: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
         token_type_ids: Optional[torch.Tensor] = None,
         labels: Optional[torch.Tensor] = None,
         ref_input_ids: Optional[torch.Tensor] = None,
         ref_attention_mask: Optional[torch.Tensor] = None,
         ref_labels: Optional[torch.Tensor] = None,
+        inputs_embeds: Optional[torch.Tensor] = None,
+        **kwargs,
     ) -> Dict[str, torch.Tensor]:
         """
         Forward pass.
@@ -148,6 +150,8 @@ class UnionClassifier(nn.Module):
             ref_input_ids: Reference input IDs for reconstruction [batch_size, seq_length]
             ref_attention_mask: Reference attention mask [batch_size, seq_length]
             ref_labels: Reference labels for reconstruction [batch_size, seq_length]
+            inputs_embeds: Optional pre-computed embeddings (for PEFT compatibility)
+            **kwargs: Additional arguments for compatibility with PEFT/LoRA
 
         Returns:
             Dictionary with loss, logits, and optional reconstruction loss
@@ -161,11 +165,13 @@ class UnionClassifier(nn.Module):
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 token_type_ids=token_type_ids,
+                inputs_embeds=inputs_embeds,
             )
         else:
             encoder_outputs = self.encoder(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
+                inputs_embeds=inputs_embeds,
             )
 
         # Get pooled output
