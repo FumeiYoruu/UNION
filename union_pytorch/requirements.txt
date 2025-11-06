@@ -7,3 +7,10 @@ scikit-learn>=1.3.0
 tqdm>=4.65.0
 tensorboard>=2.14.0
 scipy>=1.10.0
+
+# Performance optimizations (optional but highly recommended for long sequences)
+# Flash Attention 2 - provides 4-8x speedup for attention computation
+# Note: Requires CUDA-compatible GPU (Ampere/Ada/Hopper architecture recommended)
+# Install with: pip install flash-attn --no-build-isolation
+# Uncomment below if you want to include it in automated installs:
+# flash-attn>=2.3.0

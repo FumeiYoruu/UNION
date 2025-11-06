@@ -1,0 +1,47 @@
+# Optional performance optimization packages for training with long sequences (16K+ tokens)
+# These packages can significantly speed up training but require additional setup
+
+# Flash Attention 2 - 4-8x faster attention computation for long sequences
+# Requires: CUDA-compatible GPU (Ampere A100/A6000, Ada RTX 40xx, or Hopper H100 recommended)
+# Install command: pip install flash-attn --no-build-isolation
+flash-attn>=2.3.0
+
+# Alternative: xFormers for efficient attention (easier to install than flash-attn)
+# Install command: pip install xformers
+# xformers>=0.0.22
+
+# Triton for optimized CUDA kernels (required by some flash-attn versions)
+triton>=2.1.0
+
+# Installation instructions:
+# =======================
+#
+# IMPORTANT: If you get "CUDA_HOME environment variable is not set" error:
+#
+# 1. Find your CUDA installation:
+#    ls /usr/local/cuda*
+#    # Usually: /usr/local/cuda or /usr/local/cuda-12.1 (or similar version)
+#
+# 2. Set CUDA_HOME temporarily:
+#    export CUDA_HOME=/usr/local/cuda    # Adjust path if different
+#    export PATH=$CUDA_HOME/bin:$PATH
+#    export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
+#
+# 3. Install flash-attn:
+#    pip install flash-attn --no-build-isolation
+#
+# 4. Make permanent (add to ~/.bashrc or ~/.zshrc):
+#    echo 'export CUDA_HOME=/usr/local/cuda' >> ~/.bashrc
+#    echo 'export PATH=$CUDA_HOME/bin:$PATH' >> ~/.bashrc
+#    echo 'export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH' >> ~/.bashrc
+#
+# For maximum performance with 16K+ token sequences:
+#   pip install -r requirements-perf.txt
+#
+# Or use the alternative xFormers (easier installation, no CUDA_HOME needed):
+#   pip install xformers
+#
+# Notes:
+# - Flash Attention requires CUDA 11.6+ and compatible GPU architecture
+# - Compilation can take 10-30 minutes on first install
+# - These optimizations provide 4-15x speedup for long sequences
