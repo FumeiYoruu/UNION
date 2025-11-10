@@ -861,11 +861,18 @@ def main():
             training_state = torch.load(training_state_path, map_location=device)
             optimizer.load_state_dict(training_state["optimizer"])
             scheduler.load_state_dict(training_state["scheduler"])
-            start_epoch = training_state.get("epoch", 0)
+            saved_epoch = training_state.get("epoch", 0)
             global_step = training_state.get("step", 0)
             start_batch_step = training_state.get("batch_step", 0)  # Resume from this batch
-            print(f"Continuing from epoch {start_epoch}, global step {global_step}, batch step {start_batch_step}")
-            print(f"Will skip the first {start_batch_step} batches of epoch {start_epoch}\n")
+
+            # The saved epoch is the display epoch (1-indexed)
+            # But the training loop needs the 0-indexed epoch value
+            # So if we saved during "Epoch 1" (display), saved_epoch=1
+            # We want to continue in the loop at epoch_index=0 (which displays as "Epoch 1")
+            start_epoch = saved_epoch - 1
+
+            print(f"Resuming from display epoch {saved_epoch} (loop index {start_epoch})")
+            print(f"Global step: {global_step}, will skip first {start_batch_step} batches\n")
         else:
             print(f"Warning: training_state.pt not found, starting fresh optimizer/scheduler\n")
 
