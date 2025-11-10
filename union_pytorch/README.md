@@ -469,7 +469,7 @@ python union_pytorch/train.py \
 # Multi-GPU training with DDP (uses torchrun or python -m torch.distributed.run)
 torchrun --nproc_per_node=2 
     python train_lora.py \
-    --resume_from_checkpoint ../output/checkpoint-200 \
+    --resume_from_checkpoint ../output/checkpoint-500 \
     --task_name train \
     --use_reconstruction \
     --dataset_mode combined \
