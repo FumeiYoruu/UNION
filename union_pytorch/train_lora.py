@@ -468,10 +468,10 @@ def train_epoch(
         # Evaluate during training (moved outside gradient accumulation block)
         if (step + 1) % args.gradient_accumulation_steps == 0 and args.eval_steps > 0 and global_step % args.eval_steps == 0 and eval_dataloader is not None:
             print(f"\n{'='*80}")
-            print(f"Evaluating at step {global_step}...")
+            print(f"Evaluating at step {global_step} (using 1% of eval data)...")
             print('='*80)
 
-            eval_metrics = evaluate(model, eval_dataloader, device)
+            eval_metrics = evaluate(model, eval_dataloader, device, eval_fraction=0.01)
 
             print(f"Validation metrics (step {global_step}):")
             print(f"  Loss: {eval_metrics['loss']:.4f}")
@@ -513,16 +513,31 @@ def train_epoch(
     return global_step, best_f1
 
 
-def evaluate(model, dataloader, device):
-    """Evaluate model."""
+def evaluate(model, dataloader, device, eval_fraction=1.0):
+    """Evaluate model.
+
+    Args:
+        model: Model to evaluate
+        dataloader: DataLoader for evaluation data
+        device: Device to use
+        eval_fraction: Fraction of dataset to evaluate (0.0-1.0). Default: 1.0 (all data)
+    """
     model.eval()
 
     all_preds = []
     all_labels = []
     loss_meter = AverageMeter()
 
+    # Calculate how many batches to evaluate
+    total_batches = len(dataloader)
+    batches_to_eval = max(1, int(total_batches * eval_fraction))
+
     with torch.no_grad():
-        for batch in tqdm(dataloader, desc="Evaluating"):
+        for batch_idx, batch in enumerate(tqdm(dataloader, desc="Evaluating", total=batches_to_eval)):
+            # Stop after evaluating the desired fraction
+            if batch_idx >= batches_to_eval:
+                break
+
             batch = {k: v.to(device) for k, v in batch.items()}
 
             # Suppress attention window warnings during forward pass
@@ -968,9 +983,9 @@ def main():
 
         # Evaluate at end of epoch
         print(f"\n{'='*80}")
-        print(f"End of Epoch {epoch + 1} - Evaluating...")
+        print(f"End of Epoch {epoch + 1} - Evaluating (using 10% of eval data)...")
         print('='*80)
-        eval_metrics = evaluate(model, eval_dataloader, device)
+        eval_metrics = evaluate(model, eval_dataloader, device, eval_fraction=0.10)
 
         print(f"Validation metrics (end of epoch {epoch + 1}):")
         print(f"  Loss: {eval_metrics['loss']:.4f}")
