@@ -194,8 +194,18 @@ class UnionClassifier(nn.Module):
             if hasattr(encoder_outputs, 'pooler_output') and encoder_outputs.pooler_output is not None:
                 pooled_output = encoder_outputs.pooler_output
             else:
-                # Longformer doesn't have pooler_output, use [CLS] token
-                pooled_output = encoder_outputs.last_hidden_state[:, 0, :]
+                # LED encoder doesn't have pooler and [CLS] token is not meaningful
+                # Use mean pooling over all tokens instead (much better for LED)
+                if self.model_type == "longformer":
+                    # Mean pooling with attention mask
+                    hidden_state = encoder_outputs.last_hidden_state  # [batch_size, seq_len, hidden_size]
+                    attention_mask_expanded = attention_mask.unsqueeze(-1).expand(hidden_state.size()).float()
+                    sum_embeddings = torch.sum(hidden_state * attention_mask_expanded, dim=1)
+                    sum_mask = attention_mask_expanded.sum(dim=1)
+                    pooled_output = sum_embeddings / sum_mask  # [batch_size, hidden_size]
+                else:
+                    # For other models without pooler, use [CLS] token
+                    pooled_output = encoder_outputs.last_hidden_state[:, 0, :]
 
         # Classification
         pooled_output = self.dropout(pooled_output)
