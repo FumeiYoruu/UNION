@@ -493,8 +493,7 @@ torchrun --nproc_per_node=2 train_lora.py \
     --lazy_loading \
     --train_data_fraction 0.1 \
     --fp16 \
-    --use_flash_attention \
-    --compile_model
+    --use_flash_attention
 ```
 
 

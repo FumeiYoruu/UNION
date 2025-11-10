@@ -63,6 +63,10 @@ class DataCollatorWithDynamicPadding:
 
             elif key.startswith("ref_"):
                 # Handle reconstruction tensors similarly
+                # Skip if not all features have this key (e.g., mixed reconstruction/non-reconstruction batch)
+                if not all(key in f for f in features):
+                    continue
+
                 tensors = []
                 for f in features:
                     tensor = f[key][:max_length]

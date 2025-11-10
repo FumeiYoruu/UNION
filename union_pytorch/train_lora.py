@@ -276,8 +276,13 @@ def save_lora_checkpoint(
     output_dir,
     prefix="checkpoint",
     keep_last_n=3,
+    batch_step=0,
 ):
-    """Save LoRA adapter checkpoint."""
+    """Save LoRA adapter checkpoint.
+
+    Args:
+        batch_step: Current batch index within the epoch (for mid-epoch resuming)
+    """
     checkpoint_dir = os.path.join(output_dir, f"{prefix}-{global_step}")
     os.makedirs(checkpoint_dir, exist_ok=True)
 
@@ -293,6 +298,7 @@ def save_lora_checkpoint(
         "scheduler": scheduler.state_dict(),
         "epoch": epoch,
         "step": global_step,
+        "batch_step": batch_step,  # Track which batch within epoch
     }, os.path.join(checkpoint_dir, "training_state.pt"))
 
     print(f"Saved LoRA checkpoint to {checkpoint_dir}")
@@ -325,8 +331,13 @@ def train_epoch(
     scaler=None,
     eval_dataloader=None,
     best_f1=0.0,
+    start_step=0,
 ):
-    """Train for one epoch."""
+    """Train for one epoch.
+
+    Args:
+        start_step: Skip this many batches at the start (for resuming mid-epoch)
+    """
     model.train()
 
     loss_meter = AverageMeter()
@@ -342,6 +353,9 @@ def train_epoch(
     step_start = time.time()
 
     for step, batch in enumerate(progress_bar):
+        # Skip batches that have already been processed (when resuming)
+        if step < start_step:
+            continue
         # Track data loading time
         data_time += time.time() - step_start
 
@@ -448,6 +462,7 @@ def train_epoch(
                 args.output_dir,
                 prefix="checkpoint",
                 keep_last_n=args.keep_last_n_checkpoints,
+                batch_step=step + 1,  # Save which batch we've completed
             )
 
         # Evaluate during training (moved outside gradient accumulation block)
@@ -484,6 +499,7 @@ def train_epoch(
                     args.output_dir,
                     prefix="best",
                     keep_last_n=0,  # Keep all best checkpoints
+                    batch_step=step + 1,
                 )
 
             print('='*80 + '\n')
@@ -815,6 +831,7 @@ def main():
     # Load from checkpoint if resuming
     start_epoch = 0
     global_step = 0
+    start_batch_step = 0  # Track which batch to resume from within epoch
 
     if args.resume_from_checkpoint:
         print(f"\nResuming training from LoRA checkpoint: {args.resume_from_checkpoint}")
@@ -846,7 +863,9 @@ def main():
             scheduler.load_state_dict(training_state["scheduler"])
             start_epoch = training_state.get("epoch", 0)
             global_step = training_state.get("step", 0)
-            print(f"Continuing from epoch {start_epoch}, step {global_step}\n")
+            start_batch_step = training_state.get("batch_step", 0)  # Resume from this batch
+            print(f"Continuing from epoch {start_epoch}, global step {global_step}, batch step {start_batch_step}")
+            print(f"Will skip the first {start_batch_step} batches of epoch {start_epoch}\n")
         else:
             print(f"Warning: training_state.pt not found, starting fresh optimizer/scheduler\n")
 
@@ -903,6 +922,14 @@ def main():
     print(f"Model compilation: {args.compile_model}")
     print("=" * 80 + "\n")
 
+    # Write initial dummy values to TensorBoard to ensure it shows up immediately
+    if writer is not None and global_step == 0:
+        writer.add_scalar("train/loss", 0.0, 0)
+        writer.add_scalar("train/cls_loss", 0.0, 0)
+        writer.add_scalar("train/lr", args.learning_rate, 0)
+        writer.flush()
+        print("✓ Initial TensorBoard event written (step 0)")
+
     # Training loop
     best_f1 = 0.0
     start_time = time.time()
@@ -910,6 +937,10 @@ def main():
     for epoch in range(start_epoch, args.num_train_epochs):
         print(f"\nEpoch {epoch + 1}/{args.num_train_epochs}")
         print("-" * 80)
+
+        # For the first epoch when resuming, skip already-processed batches
+        # For subsequent epochs, start from batch 0
+        current_start_batch = start_batch_step if epoch == start_epoch else 0
 
         # Train (with optional in-training evaluation)
         global_step, best_f1 = train_epoch(
@@ -925,6 +956,7 @@ def main():
             scaler=scaler,
             eval_dataloader=eval_dataloader,
             best_f1=best_f1,
+            start_step=current_start_batch,
         )
 
         # Evaluate at end of epoch
@@ -959,6 +991,7 @@ def main():
                 args.output_dir,
                 prefix="best",
                 keep_last_n=0,  # Keep all best checkpoints
+                batch_step=0,  # End of epoch, reset to 0 for next epoch
             )
 
         print('='*80)
@@ -973,6 +1006,7 @@ def main():
             args.output_dir,
             prefix="epoch",
             keep_last_n=2,  # Keep last 2 epoch checkpoints
+            batch_step=0,  # End of epoch, reset to 0 for next epoch
         )
 
     # Training complete
