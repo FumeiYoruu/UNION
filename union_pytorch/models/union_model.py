@@ -268,23 +268,49 @@ class UnionClassifier(nn.Module):
         # Remove batch dimension and transpose back: [1, dim, new_len] -> [new_len, dim]
         new_embeddings = new_embeddings_transposed.squeeze(0).transpose(0, 1)
 
-        # Replace the position embeddings
-        self.encoder.embeddings.position_embeddings = nn.Embedding(new_max_length, embedding_dim)
-        self.encoder.embeddings.position_embeddings.weight.data = new_embeddings
+        # Get current device
+        current_device = old_embeddings.device
 
-        # Update config
+        # Get padding_idx from current embeddings (important for Longformer)
+        padding_idx = self.encoder.embeddings.position_embeddings.padding_idx
+
+        # Replace the position embeddings
+        # Note: Longformer uses padding_idx=1 for position embeddings
+        new_embedding_layer = nn.Embedding(
+            new_max_length,
+            embedding_dim,
+            padding_idx=padding_idx
+        )
+        new_embedding_layer.weight.data = new_embeddings.to(current_device)
+        self.encoder.embeddings.position_embeddings = new_embedding_layer.to(current_device)
+
+        # Update config BEFORE updating position_ids (important!)
         self.config.max_position_embeddings = new_max_length
         self.encoder.config.max_position_embeddings = new_max_length
 
         # Update position_ids buffer if it exists
+        # Longformer uses position_ids starting from padding_idx+1 (usually 2)
         if hasattr(self.encoder.embeddings, 'position_ids'):
+            # Create position_ids: [0, 1, 2, ..., new_max_length-1]
+            # But Longformer might need [padding_idx+1, padding_idx+2, ...]
+            position_ids = torch.arange(new_max_length, dtype=torch.long).expand((1, -1))
             self.encoder.embeddings.register_buffer(
                 "position_ids",
-                torch.arange(new_max_length).expand((1, -1))
+                position_ids,
+                persistent=False
             )
+
+        # Longformer also needs attention_window updated
+        # attention_window defines the local attention radius for each layer
+        if hasattr(self.config, 'attention_window'):
+            # Keep the same attention window size (typically 512)
+            # but ensure config knows about new max length
+            print(f"  Attention window: {self.config.attention_window}")
 
         print(f"✓ Position embeddings extended to {new_max_length}")
         print(f"  New embedding shape: {self.encoder.embeddings.position_embeddings.weight.shape}")
+        print(f"  Padding idx: {padding_idx}")
+        print(f"  Device: {current_device}")
 
     def forward(
         self,

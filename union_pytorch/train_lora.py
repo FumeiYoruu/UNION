@@ -246,6 +246,10 @@ def create_lora_model(base_model, args, device):
         # Add layer_poolers if using multi-layer pooling
         if args.use_all_layers:
             modules_to_save.append("layer_poolers")
+
+        # Add attention_pooling if using attention pooling strategy
+        if hasattr(args, 'pooling_strategy') and args.pooling_strategy == "attention":
+            modules_to_save.append("attention_pooling")
     else:
         modules_to_save = args.lora_modules_to_save
 
