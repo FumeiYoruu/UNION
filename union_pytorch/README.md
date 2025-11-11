@@ -497,6 +497,35 @@ torchrun --nproc_per_node=2
     --fp16 \
     --use_flash_attention
 ```
+```bash
+python train_lora.py \
+    --task_name train \
+    --use_reconstruction \
+    --dataset_mode combined \
+    --award_data_dir /scratch1/tanalvin/Data/Award-winning \
+    --wp_data_dir /scratch1/tanalvin/Data/WritingPrompts \
+    --output_dir ../output_new \
+    --model_type longformer \
+    --max_seq_length 16384 \
+    --train_batch_size 8 \
+    --eval_batch_size 8 \
+    --learning_rate 3e-4 \
+    --num_train_epochs 3 \
+    --warmup_steps 500 \
+    --gradient_accumulation_steps 16 \
+    --logging_steps 100 \
+    --save_steps 100 \
+    --eval_steps 500 \
+    --lora_r 8 \
+    --lora_alpha 16 \
+    --lora_dropout 0.1 \
+    --device cuda \
+    --seed 42 \
+    --lazy_loading \
+    --train_data_fraction 0.1 \
+    --fp16 \
+    --use_flash_attention
+```
 
 
 **If training gets interrupted:**

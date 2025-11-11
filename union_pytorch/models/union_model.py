@@ -176,15 +176,25 @@ class UnionClassifier(nn.Module):
 
         # Get pooled output
         if self.use_all_layers:
-            # Multi-layer pooling: pool [CLS] token from all layers
+            # Multi-layer pooling: pool from all layers
             all_hidden_states = encoder_outputs.hidden_states  # Tuple of (batch_size, seq_length, hidden_size)
 
             pooled_outputs = []
             for i, hidden_state in enumerate(all_hidden_states[1:]):  # Skip embedding layer
-                # Extract [CLS] token (first token)
-                cls_token = hidden_state[:, 0, :]  # [batch_size, hidden_size]
+                # For LED/Longformer, use mean pooling; for BERT, use [CLS] token
+                if self.model_type == "longformer":
+                    # Mean pooling with attention mask for this layer
+                    attention_mask_expanded = attention_mask.unsqueeze(-1).expand(hidden_state.size()).float()
+                    sum_embeddings = torch.sum(hidden_state * attention_mask_expanded, dim=1)  # [batch_size, hidden_size]
+                    sum_mask = attention_mask.sum(dim=1, keepdim=True).float()  # [batch_size, 1]
+                    sum_mask = torch.clamp(sum_mask, min=1e-9)
+                    layer_pooled = sum_embeddings / sum_mask  # [batch_size, hidden_size]
+                else:
+                    # Extract [CLS] token (first token)
+                    layer_pooled = hidden_state[:, 0, :]  # [batch_size, hidden_size]
+
                 # Apply layer-specific pooler with tanh activation
-                pooled = torch.tanh(self.layer_poolers[i](cls_token))
+                pooled = torch.tanh(self.layer_poolers[i](layer_pooled))
                 pooled_outputs.append(pooled)
 
             # Average pooled outputs from all layers
@@ -200,8 +210,14 @@ class UnionClassifier(nn.Module):
                     # Mean pooling with attention mask
                     hidden_state = encoder_outputs.last_hidden_state  # [batch_size, seq_len, hidden_size]
                     attention_mask_expanded = attention_mask.unsqueeze(-1).expand(hidden_state.size()).float()
-                    sum_embeddings = torch.sum(hidden_state * attention_mask_expanded, dim=1)
-                    sum_mask = attention_mask_expanded.sum(dim=1)
+                    sum_embeddings = torch.sum(hidden_state * attention_mask_expanded, dim=1)  # [batch_size, hidden_size]
+
+                    # Count valid tokens per sample (sum across sequence dimension only)
+                    sum_mask = attention_mask.sum(dim=1, keepdim=True).float()  # [batch_size, 1]
+
+                    # Clamp to avoid division by zero
+                    sum_mask = torch.clamp(sum_mask, min=1e-9)
+
                     pooled_output = sum_embeddings / sum_mask  # [batch_size, hidden_size]
                 else:
                     # For other models without pooler, use [CLS] token
