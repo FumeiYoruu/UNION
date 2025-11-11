@@ -5,9 +5,10 @@ import numpy as np
 from functools import reduce
 import operator
 from typing import List, Dict, Optional, Tuple
+from itertools import cycle
 
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 from transformers import PreTrainedTokenizer
 
 
@@ -460,3 +461,125 @@ class PredictionDataset(Dataset):
     def get_human_scores(self):
         """Return human judgment scores."""
         return self.scores
+
+
+class MultiDataLoaderIterator:
+    """
+    Iterator that alternates between multiple dataloaders with different batch sizes.
+
+    This allows training with different batch sizes for different datasets in combined mode,
+    which is useful when datasets have different sequence lengths (e.g., Award-winning vs WritingPrompts).
+
+    Example:
+        dataloader1 = DataLoader(dataset1, batch_size=2)  # Award-winning (long sequences)
+        dataloader2 = DataLoader(dataset2, batch_size=8)  # WritingPrompts (shorter sequences)
+
+        multi_loader = MultiDataLoaderIterator([dataloader1, dataloader2])
+        for batch in multi_loader:
+            # Alternates between dataloader1 and dataloader2
+            # Each batch has its configured batch size
+            pass
+    """
+
+    def __init__(self, dataloaders: List[DataLoader], dataset_names: Optional[List[str]] = None):
+        """
+        Args:
+            dataloaders: List of DataLoader instances to alternate between
+            dataset_names: Optional names for each dataloader (for debugging)
+        """
+        self.dataloaders = dataloaders
+        self.dataset_names = dataset_names or [f"Dataset{i}" for i in range(len(dataloaders))]
+
+        # Calculate total length (sum of all dataloader lengths)
+        self._length = sum(len(dl) for dl in dataloaders)
+
+        # Track state for resuming
+        self.current_loader_idx = 0
+        self.current_loader_iter = None
+        self.batches_consumed = 0  # Total batches consumed across all loaders
+
+    def __len__(self):
+        """Total number of batches across all dataloaders."""
+        return self._length
+
+    def __iter__(self):
+        """Create iterators for all dataloaders and start alternating."""
+        # Create iterators for each dataloader
+        self.iterators = [iter(dl) for dl in self.dataloaders]
+
+        # Track batches remaining in each dataloader
+        self.batches_remaining = [len(dl) for dl in self.dataloaders]
+
+        # Reset state
+        self.current_loader_idx = 0
+        self.batches_consumed = 0
+
+        return self
+
+    def __next__(self):
+        """Get next batch, alternating between dataloaders."""
+        # Check if all dataloaders are exhausted
+        if all(remaining == 0 for remaining in self.batches_remaining):
+            raise StopIteration
+
+        # Find next non-empty dataloader (round-robin)
+        attempts = 0
+        while attempts < len(self.dataloaders):
+            if self.batches_remaining[self.current_loader_idx] > 0:
+                # Get batch from current dataloader
+                try:
+                    batch = next(self.iterators[self.current_loader_idx])
+                    self.batches_remaining[self.current_loader_idx] -= 1
+                    self.batches_consumed += 1
+
+                    # Move to next dataloader for next iteration
+                    self.current_loader_idx = (self.current_loader_idx + 1) % len(self.dataloaders)
+
+                    return batch
+                except StopIteration:
+                    # Should not happen, but handle gracefully
+                    self.batches_remaining[self.current_loader_idx] = 0
+
+            # Try next dataloader
+            self.current_loader_idx = (self.current_loader_idx + 1) % len(self.dataloaders)
+            attempts += 1
+
+        # All dataloaders exhausted
+        raise StopIteration
+
+    def skip_batches(self, num_batches: int):
+        """
+        Skip the first num_batches batches (for resuming from checkpoint).
+
+        This must be called before iterating to resume from a specific batch.
+        """
+        if num_batches == 0:
+            return
+
+        print(f"Skipping first {num_batches} batches to resume from checkpoint...")
+
+        # Create iterators
+        self.iterators = [iter(dl) for dl in self.dataloaders]
+        self.batches_remaining = [len(dl) for dl in self.dataloaders]
+        self.current_loader_idx = 0
+        self.batches_consumed = 0
+
+        # Skip batches by calling __next__ without using the data
+        skipped = 0
+        while skipped < num_batches:
+            try:
+                _ = self.__next__()
+                skipped += 1
+
+                if skipped % 100 == 0:
+                    print(f"  Skipped {skipped}/{num_batches} batches...")
+            except StopIteration:
+                print(f"Warning: Reached end of epoch while skipping (skipped {skipped}/{num_batches})")
+                break
+
+        print(f"Resuming from batch {num_batches}")
+
+    def get_progress_info(self) -> str:
+        """Get progress information string."""
+        remaining_per_loader = [f"{name}:{rem}" for name, rem in zip(self.dataset_names, self.batches_remaining)]
+        return f"Batches consumed: {self.batches_consumed}/{self._length}, Remaining: [{', '.join(remaining_per_loader)}]"

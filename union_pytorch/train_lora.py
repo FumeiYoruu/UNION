@@ -41,7 +41,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import get_args
 from models import create_model
-from data import StoryDataset, CombinedDataset, DataCollatorWithDynamicPadding, DataCollatorWithFixedBuckets
+from data import StoryDataset, CombinedDataset, DataCollatorWithDynamicPadding, DataCollatorWithFixedBuckets, MultiDataLoaderIterator
 from utils import (
     set_seed,
     get_device,
@@ -135,7 +135,11 @@ def get_lora_args():
                         choices=["train", "pred"],
                         help="Task: train or predict")
     parser.add_argument("--train_batch_size", type=int, default=8,
-                        help="Training batch size")
+                        help="Training batch size (default for single dataset or all datasets)")
+    parser.add_argument("--wp_batch_size", type=int, default=None,
+                        help="WritingPrompts batch size for combined mode (default: uses --train_batch_size)")
+    parser.add_argument("--award_batch_size", type=int, default=None,
+                        help="Award-winning batch size for combined mode (default: uses --train_batch_size)")
     parser.add_argument("--eval_batch_size", type=int, default=16,
                         help="Evaluation batch size")
     parser.add_argument("--learning_rate", type=float, default=3e-4,
@@ -281,7 +285,9 @@ def save_lora_checkpoint(
     """Save LoRA adapter checkpoint.
 
     Args:
-        batch_step: Current batch index within the epoch (for mid-epoch resuming)
+        batch_step: Index of the NEXT batch to process after resuming (0-indexed)
+            - Mid-epoch: Save step+1 (next batch to process)
+            - End-of-epoch: Save 0 (epoch complete, start next epoch from batch 0)
     """
     checkpoint_dir = os.path.join(output_dir, f"{prefix}-{global_step}")
     os.makedirs(checkpoint_dir, exist_ok=True)
@@ -344,6 +350,12 @@ def train_epoch(
     cls_loss_meter = AverageMeter()
     rec_loss_meter = AverageMeter()
 
+    # Handle resuming for MultiDataLoaderIterator
+    if isinstance(dataloader, MultiDataLoaderIterator) and start_step > 0:
+        # For MultiDataLoaderIterator, use skip_batches method before creating iterator
+        dataloader.skip_batches(start_step)
+        start_step = 0  # Reset since we've already skipped
+
     progress_bar = tqdm(dataloader, desc=f"Epoch {epoch}")
 
     # Track time breakdown for performance debugging
@@ -353,8 +365,8 @@ def train_epoch(
     step_start = time.time()
 
     for step, batch in enumerate(progress_bar):
-        # Skip batches that have already been processed (when resuming)
-        if step < start_step:
+        # Skip batches that have already been processed (when resuming - for regular dataloaders)
+        if start_step > 0 and step < start_step:
             continue
         # Track data loading time
         data_time += time.time() - step_start
@@ -462,7 +474,7 @@ def train_epoch(
                 args.output_dir,
                 prefix="checkpoint",
                 keep_last_n=args.keep_last_n_checkpoints,
-                batch_step=step + 1,  # Save which batch we've completed
+                batch_step=step + 1,  # Next batch to process (batch 'step' was just completed)
             )
 
         # Evaluate during training (moved outside gradient accumulation block)
@@ -569,13 +581,19 @@ def evaluate(model, dataloader, device, eval_fraction=1.0):
 
 
 def create_dataset(args, tokenizer, mode):
-    """Create dataset based on dataset_mode configuration."""
+    """Create dataset based on dataset_mode configuration.
+
+    Returns:
+        For combined mode: Tuple of (datasets, dataset_names)
+        For single mode: Single dataset
+    """
     # Only apply data fraction to training set, not validation/test
     data_fraction = args.train_data_fraction if mode == "train" else 1.0
 
     if args.dataset_mode == "combined":
-        # Create combined dataset from multiple sources
+        # Create separate datasets for combined mode (not using CombinedDataset)
         datasets = []
+        dataset_names = []
 
         # Add Award-winning dataset if directory is provided
         if args.award_data_dir:
@@ -590,6 +608,7 @@ def create_dataset(args, tokenizer, mode):
                 lazy_loading=args.lazy_loading,
             )
             datasets.append(award_dataset)
+            dataset_names.append("Award")
             print(f"    Award-winning: {len(award_dataset)} examples (reconstruction: {args.award_has_reconstruction})")
 
         # Add WritingPrompts dataset if directory is provided
@@ -606,6 +625,7 @@ def create_dataset(args, tokenizer, mode):
                 lazy_loading=args.lazy_loading,
             )
             datasets.append(wp_dataset)
+            dataset_names.append("WP")
             print(f"    WritingPrompts: {len(wp_dataset)} examples (reconstruction: {args.wp_has_reconstruction})")
 
         if not datasets:
@@ -614,10 +634,9 @@ def create_dataset(args, tokenizer, mode):
                 "Please provide --award_data_dir and/or --wp_data_dir"
             )
 
-        # Combine datasets
-        combined_dataset = CombinedDataset(datasets)
-        print(f"  Combined total: {len(combined_dataset)} examples")
-        return combined_dataset
+        total_examples = sum(len(d) for d in datasets)
+        print(f"  Combined total: {total_examples} examples across {len(datasets)} datasets")
+        return datasets, dataset_names
 
     else:
         # Single dataset mode (roc, wp, or award)
@@ -693,15 +712,10 @@ def main():
 
     # Load datasets
     print("Loading training data...")
-    train_dataset = create_dataset(args, tokenizer, mode="train")
+    train_data = create_dataset(args, tokenizer, mode="train")
 
     print("Loading validation data...")
-    eval_dataset = create_dataset(args, tokenizer, mode="dev")
-
-    # Create dataloaders
-    # Use more workers for faster data loading (8-16 recommended for modern systems)
-    # Use persistent_workers to avoid recreating workers each epoch
-    num_workers = 32 if not args.lazy_loading else 32
+    eval_data = create_dataset(args, tokenizer, mode="dev")
 
     # Setup padding collator
     collate_fn = None
@@ -720,27 +734,102 @@ def main():
     else:
         print("Using fixed padding (max_seq_length)")
 
-    train_dataloader = DataLoader(
-        train_dataset,
-        batch_size=args.train_batch_size,
-        shuffle=True,
-        num_workers=num_workers,
-        pin_memory=True if device.type == "cuda" else False,
-        persistent_workers=True if num_workers > 0 else False,
-        prefetch_factor=2,  # Prefetch 2 batches per worker
-        collate_fn=collate_fn,
-    )
+    # Create dataloaders
+    # Use more workers for faster data loading (8-16 recommended for modern systems)
+    # Use persistent_workers to avoid recreating workers each epoch
+    num_workers = 32 if not args.lazy_loading else 32
 
-    eval_dataloader = DataLoader(
-        eval_dataset,
-        batch_size=args.eval_batch_size,
-        shuffle=False,
-        num_workers=num_workers,
-        pin_memory=True if device.type == "cuda" else False,
-        persistent_workers=True if num_workers > 0 else False,
-        prefetch_factor=2,
-        collate_fn=collate_fn,
-    )
+    # Check if combined mode (returns tuple) or single mode (returns dataset)
+    is_combined_mode = isinstance(train_data, tuple)
+
+    if is_combined_mode:
+        # Combined mode: create separate dataloaders for each dataset
+        train_datasets, train_dataset_names = train_data
+        eval_datasets, eval_dataset_names = eval_data
+
+        # Determine batch sizes for each dataset
+        train_batch_sizes = []
+        for name in train_dataset_names:
+            if name == "WP" and args.wp_batch_size is not None:
+                train_batch_sizes.append(args.wp_batch_size)
+            elif name == "Award" and args.award_batch_size is not None:
+                train_batch_sizes.append(args.award_batch_size)
+            else:
+                train_batch_sizes.append(args.train_batch_size)
+
+        # Create separate dataloaders
+        # Use seeded RandomSampler for reproducible shuffling across epochs and checkpoints
+        from torch.utils.data import RandomSampler
+
+        train_dataloaders = []
+        for dataset, batch_size, name in zip(train_datasets, train_batch_sizes, train_dataset_names):
+            # Create reproducible sampler with fixed seed
+            # This ensures same shuffle order every epoch (consistent across checkpoints)
+            generator = torch.Generator().manual_seed(args.seed)
+            sampler = RandomSampler(dataset, generator=generator)
+
+            dataloader = DataLoader(
+                dataset,
+                batch_size=batch_size,
+                sampler=sampler,  # Use sampler instead of shuffle
+                num_workers=num_workers,
+                pin_memory=True if device.type == "cuda" else False,
+                persistent_workers=True if num_workers > 0 else False,
+                prefetch_factor=2,
+                collate_fn=collate_fn,
+            )
+            train_dataloaders.append(dataloader)
+            print(f"  {name} train dataloader: {len(dataloader)} batches (batch_size={batch_size})")
+
+        # Wrap in MultiDataLoaderIterator
+        train_dataloader = MultiDataLoaderIterator(train_dataloaders, train_dataset_names)
+        print(f"\nCombined training: {len(train_dataloader)} total batches across {len(train_dataloaders)} datasets")
+        print(f"Using reproducible shuffle (seed={args.seed}) - same order across epochs and checkpoints")
+
+        # For evaluation, use combined dataset (we don't need per-dataset batch sizes for eval)
+        eval_dataset = CombinedDataset(eval_datasets)
+        eval_dataloader = DataLoader(
+            eval_dataset,
+            batch_size=args.eval_batch_size,
+            shuffle=False,
+            num_workers=num_workers,
+            pin_memory=True if device.type == "cuda" else False,
+            persistent_workers=True if num_workers > 0 else False,
+            prefetch_factor=2,
+            collate_fn=collate_fn,
+        )
+
+    else:
+        # Single dataset mode
+        train_dataset = train_data
+        eval_dataset = eval_data
+
+        # Use seeded RandomSampler for reproducible shuffling
+        from torch.utils.data import RandomSampler
+        generator = torch.Generator().manual_seed(args.seed)
+        train_sampler = RandomSampler(train_dataset, generator=generator)
+
+        train_dataloader = DataLoader(
+            train_dataset,
+            batch_size=args.train_batch_size,
+            sampler=train_sampler,  # Use sampler instead of shuffle for reproducibility
+            num_workers=num_workers,
+            pin_memory=True if device.type == "cuda" else False,
+            persistent_workers=True if num_workers > 0 else False,
+            prefetch_factor=2,  # Prefetch 2 batches per worker
+            collate_fn=collate_fn,
+        )
+
+        eval_dataloader = DataLoader(
+            eval_dataset,
+            batch_size=args.eval_batch_size,
+            shuffle=False,  # No shuffle for eval
+            num_workers=num_workers,
+            pin_memory=True if device.type == "cuda" else False,
+            persistent_workers=True if num_workers > 0 else False,
+            prefetch_factor=2,
+            collate_fn=collate_fn,
+        )
 
     # Create base model
     # Note: Gradient checkpointing should be disabled for LoRA since base model is frozen
@@ -882,11 +971,19 @@ def main():
 
             # The saved epoch is the display epoch (1-indexed)
             # But the training loop needs the 0-indexed epoch value
-            # So if we saved during "Epoch 1" (display), saved_epoch=1
-            # We want to continue in the loop at epoch_index=0 (which displays as "Epoch 1")
-            start_epoch = saved_epoch - 1
+            #
+            # If batch_step is 0, it means the epoch was fully completed
+            # Move to next epoch
+            # Otherwise, continue from mid-epoch
+            if start_batch_step == 0:
+                # End-of-epoch checkpoint: move to next epoch
+                start_epoch = saved_epoch  # Don't subtract 1, move to next epoch
+                print(f"Resuming from END of epoch {saved_epoch}, starting epoch {saved_epoch + 1}")
+            else:
+                # Mid-epoch checkpoint: continue current epoch from where we left off
+                start_epoch = saved_epoch - 1
+                print(f"Resuming from MID of epoch {saved_epoch} (loop index {start_epoch})")
 
-            print(f"Resuming from display epoch {saved_epoch} (loop index {start_epoch})")
             print(f"Global step: {global_step}, will skip first {start_batch_step} batches\n")
         else:
             print(f"Warning: training_state.pt not found, starting fresh optimizer/scheduler\n")
@@ -922,10 +1019,27 @@ def main():
     print(f"Max sequence length: {args.max_seq_length}")
     print(f"Training data fraction: {args.train_data_fraction*100:.1f}%")
     print(f"Lazy loading: {args.lazy_loading}")
-    print(f"Training examples: {len(train_dataset)}")
+
+    # Print dataset sizes
+    if is_combined_mode:
+        total_train = sum(len(d) for d in train_datasets)
+        print(f"Training examples: {total_train} total")
+        for name, dataset in zip(train_dataset_names, train_datasets):
+            print(f"  - {name}: {len(dataset)} examples")
+    else:
+        print(f"Training examples: {len(train_dataset)}")
+
     print(f"Validation examples: {len(eval_dataset)}")
     print(f"Epochs: {args.num_train_epochs}")
-    print(f"Batch size: {args.train_batch_size}")
+
+    # Print batch sizes
+    if is_combined_mode:
+        print(f"Batch sizes:")
+        for name, batch_size in zip(train_dataset_names, train_batch_sizes):
+            print(f"  - {name}: {batch_size}")
+    else:
+        print(f"Batch size: {args.train_batch_size}")
+
     print(f"Gradient accumulation steps: {args.gradient_accumulation_steps}")
     print(f"Learning rate: {args.learning_rate}")
     print(f"Warmup steps: {args.warmup_steps}")

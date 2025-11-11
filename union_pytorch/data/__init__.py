@@ -1,6 +1,6 @@
 """Data loading utilities."""
 
-from .dataset import StoryDataset, PredictionDataset, CombinedDataset, StoryExample, StoryFeatures
+from .dataset import StoryDataset, PredictionDataset, CombinedDataset, StoryExample, StoryFeatures, MultiDataLoaderIterator
 from .collator import DataCollatorWithDynamicPadding, DataCollatorWithFixedBuckets
 
 __all__ = [
@@ -9,6 +9,7 @@ __all__ = [
     "CombinedDataset",
     "StoryExample",
     "StoryFeatures",
+    "MultiDataLoaderIterator",
     "DataCollatorWithDynamicPadding",
     "DataCollatorWithFixedBuckets",
 ]

@@ -138,6 +138,10 @@ This will output:
 ### Training Options
 
 - `--train_batch_size`: Batch size for training (default: 8)
+  - For single dataset mode: Uses this batch size
+  - For combined mode: Default batch size for all datasets (unless overridden)
+- `--wp_batch_size`: **NEW** - WritingPrompts batch size for combined mode (default: uses `--train_batch_size`)
+- `--award_batch_size`: **NEW** - Award-winning batch size for combined mode (default: uses `--train_batch_size`)
 - `--gradient_accumulation_steps`: Gradient accumulation (default: 1)
 - `--learning_rate`: Learning rate (default: 2e-5)
 - `--num_train_epochs`: Number of epochs (default: 3)
@@ -344,6 +348,45 @@ python train.py \
 
 **Note**: Both `--wp_has_reconstruction` and `--award_has_reconstruction` default to `True`, so you don't need to specify them unless you want to disable reconstruction for a dataset.
 
+### Example 8: Combined Training with Different Batch Sizes per Dataset
+
+**NEW**: You can now use different batch sizes for each dataset in combined mode! This is useful when datasets have significantly different sequence lengths to optimize VRAM usage.
+
+```bash
+python train_lora.py \
+    --task_name train \
+    --model_type longformer \
+    --output_dir ./output/longformer_combined_vram_optimized \
+    --dataset_mode combined \
+    --award_data_dir ./Data/Award-winning \
+    --wp_data_dir ./Data/WritingPrompts \
+    --max_seq_length 16384 \
+    --reconstruction_weight 0.1 \
+    --award_batch_size 2 \      # Award-winning: longer stories, smaller batch
+    --wp_batch_size 8 \          # WritingPrompts: shorter stories, larger batch
+    --gradient_accumulation_steps 4 \
+    --num_train_epochs 3 \
+    --learning_rate 3e-4 \
+    --warmup_steps 500 \
+    --fp16 \
+    --use_flash_attention \
+    --lora_r 8 \
+    --lora_alpha 16
+```
+
+**Benefits:**
+- **VRAM Optimization**: Use smaller batch size for longer sequences (Award-winning), larger batch size for shorter sequences (WritingPrompts)
+- **Training Efficiency**: Maximize throughput by optimizing batch size per dataset instead of using one-size-fits-all
+- **Proper Resuming**: Checkpoint saving/resuming works correctly with different batch sizes
+- **Automatic Alternation**: Training automatically alternates between datasets, maintaining proper gradient accumulation
+
+**How it works:**
+- Award-winning batches: 2 samples per batch (very long stories, ~10k+ tokens)
+- WritingPrompts batches: 8 samples per batch (shorter stories, ~2k-4k tokens)
+- Batches alternate between datasets in round-robin fashion
+- Checkpoints track exact batch position for perfect resuming
+- **Reproducible shuffling**: Uses seeded `RandomSampler` with `--seed` for consistent data order across epochs and checkpoint resumes (skipped batches will contain the exact same samples as original training)
+
 **Combined Dataset Options:**
 
 - `--dataset_mode combined`: Enable combined dataset mode
@@ -512,10 +555,10 @@ python train_lora.py \
     --learning_rate 3e-4 \
     --num_train_epochs 3 \
     --warmup_steps 500 \
-    --gradient_accumulation_steps 16 \
-    --logging_steps 100 \
-    --save_steps 100 \
-    --eval_steps 500 \
+    --gradient_accumulation_steps 8 \
+    --logging_steps 50 \
+    --save_steps 50 \
+    --eval_steps 250 \
     --lora_r 8 \
     --lora_alpha 16 \
     --lora_dropout 0.1 \
