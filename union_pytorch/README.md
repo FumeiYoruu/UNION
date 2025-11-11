@@ -542,7 +542,7 @@ torchrun --nproc_per_node=2
 ```
 ```bash
 python train_lora.py \
-    --resume_from_checkpoint ../outpu_new_/checkpoint-500 \
+    --resume_from_checkpoint ../output_new/checkpoint-500 \
     --task_name train \
     --use_reconstruction \
     --dataset_mode combined \

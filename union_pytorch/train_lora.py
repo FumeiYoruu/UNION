@@ -73,6 +73,11 @@ def get_lora_args():
                         help="Weight for reconstruction loss")
     parser.add_argument("--use_all_layers", action="store_true",
                         help="Use multi-layer pooling")
+    parser.add_argument("--pooling_strategy", type=str, default="mean",
+                        choices=["mean", "attention", "cls"],
+                        help="Pooling strategy for Longformer: 'mean' (simple average), "
+                             "'attention' (learned attention weights, better for long contexts), "
+                             "'cls' (use [CLS] token)")
 
     # LoRA-specific arguments
     parser.add_argument("--lora_r", type=int, default=8,
@@ -837,6 +842,16 @@ def main():
     if args.gradient_checkpointing:
         print("Warning: Gradient checkpointing is not recommended with LoRA (base model is frozen)")
         print("Disabling gradient checkpointing...")
+
+    # For pure Longformer (not LED), automatically extend position embeddings if max_seq_length > model's native length
+    extend_positions = None
+    if args.model_type == "longformer" and "led" not in args.model_name.lower():
+        # Pure Longformer models typically have 4096 max positions
+        # If user requests longer, we'll extend via interpolation
+        if args.max_seq_length > 4096:
+            extend_positions = args.max_seq_length
+            print(f"Will extend Longformer position embeddings from 4096 to {extend_positions}")
+
     base_model = create_model(
         model_type=args.model_type,
         model_name=args.model_name,
@@ -844,6 +859,8 @@ def main():
         use_reconstruction=args.use_reconstruction,
         reconstruction_weight=args.reconstruction_weight,
         gradient_checkpointing=False,  # Disable for LoRA
+        extend_position_embeddings=extend_positions,  # Extend if needed
+        pooling_strategy=args.pooling_strategy,  # Pooling strategy
     )
 
     # Load initial weights if provided (before wrapping with LoRA)

@@ -34,6 +34,7 @@ class UnionClassifier(nn.Module):
         use_reconstruction: bool = False,
         reconstruction_weight: float = 0.1,
         gradient_checkpointing: bool = False,
+        pooling_strategy: str = "mean",
     ):
         """
         Args:
@@ -45,6 +46,10 @@ class UnionClassifier(nn.Module):
             use_reconstruction: Whether to use reconstruction task
             reconstruction_weight: Weight for reconstruction loss
             gradient_checkpointing: Enable gradient checkpointing to reduce memory usage
+            pooling_strategy: Pooling strategy for Longformer - "mean", "attention", or "cls"
+                - "mean": Simple average of all tokens (default, fast but may dilute signal)
+                - "attention": Learned attention weights over tokens (better for long sequences)
+                - "cls": Use [CLS] token (not recommended for Longformer without fine-tuning)
         """
         super().__init__()
 
@@ -54,6 +59,7 @@ class UnionClassifier(nn.Module):
         self.use_all_layers = use_all_layers
         self.use_reconstruction = use_reconstruction
         self.reconstruction_weight = reconstruction_weight
+        self.pooling_strategy = pooling_strategy
 
         # Load encoder based on model type
         if model_type == "bert":
@@ -66,21 +72,41 @@ class UnionClassifier(nn.Module):
             self.hidden_size = self.config.hidden_size
 
         elif model_type == "longformer":
-            # Use LED encoder for long documents (16384 positions)
-            # LED is available while Longformer standalone is not
-            print(f"Loading LED encoder from {model_name} for long document support...")
-            led_model = LEDForConditionalGeneration.from_pretrained(model_name)
-            self.encoder = led_model.get_encoder()
+            # Auto-detect if model_name is pure Longformer or LED
+            is_led = "led" in model_name.lower()
 
-            # Update encoder config for our needs
-            self.config = self.encoder.config
-            self.config.output_hidden_states = use_all_layers
-            self.encoder.config.output_hidden_states = use_all_layers
-            self.hidden_size = self.config.d_model  # LED uses d_model instead of hidden_size
+            if is_led:
+                # Use LED encoder for long documents (16384 positions)
+                print(f"Loading LED encoder from {model_name} for long document support...")
+                led_model = LEDForConditionalGeneration.from_pretrained(model_name)
+                self.encoder = led_model.get_encoder()
 
-            # LED uses max_encoder_position_embeddings instead of max_position_embeddings
-            max_pos = getattr(self.config, 'max_encoder_position_embeddings', 16384)
-            print(f"LED encoder loaded with max_encoder_position_embeddings: {max_pos}")
+                # Update encoder config for our needs
+                self.config = self.encoder.config
+                self.config.output_hidden_states = use_all_layers
+                self.encoder.config.output_hidden_states = use_all_layers
+                self.hidden_size = self.config.d_model  # LED uses d_model instead of hidden_size
+
+                # LED uses max_encoder_position_embeddings instead of max_position_embeddings
+                max_pos = getattr(self.config, 'max_encoder_position_embeddings', 16384)
+                print(f"LED encoder loaded with max_encoder_position_embeddings: {max_pos}")
+            else:
+                # Use pure Longformer model (better for classification)
+                print(f"Loading pure Longformer model from {model_name}...")
+                self.config = AutoConfig.from_pretrained(model_name)
+                self.config.hidden_dropout_prob = hidden_dropout_prob
+                self.config.attention_probs_dropout_prob = hidden_dropout_prob
+                self.config.output_hidden_states = use_all_layers
+
+                # Note: We load the model first, then extend position embeddings if needed
+                self.encoder = LongformerModel.from_pretrained(model_name, config=self.config)
+                self.hidden_size = self.config.hidden_size
+
+                max_pos = getattr(self.config, 'max_position_embeddings', 4096)
+                print(f"Longformer model loaded with max_position_embeddings: {max_pos}")
+
+                # Position extension will be handled separately if needed
+                # Call extend_position_embeddings() after initialization
 
         else:
             # Fallback to AutoModel
@@ -118,6 +144,20 @@ class UnionClassifier(nn.Module):
 
         self.classifier = nn.Linear(classifier_input_size, num_labels)
 
+        # Attention pooling layer (for "attention" pooling strategy)
+        if self.pooling_strategy == "attention":
+            # Learnable attention mechanism: project hidden states to scalar scores
+            self.attention_pooling = nn.Sequential(
+                nn.Linear(self.hidden_size, self.hidden_size),
+                nn.Tanh(),
+                nn.Linear(self.hidden_size, 1)  # Project to scalar score per token
+            )
+            print(f"Using attention-weighted pooling (trainable)")
+        elif self.pooling_strategy == "cls":
+            print(f"Using CLS token pooling")
+        else:  # mean
+            print(f"Using mean pooling")
+
         # Reconstruction head (for masked LM task)
         if use_reconstruction:
             # Handle different vocab_size attribute names
@@ -126,6 +166,125 @@ class UnionClassifier(nn.Module):
                 # LED uses 'vocab_size' in config
                 vocab_size = self.config.vocab_size
             self.lm_head = nn.Linear(self.hidden_size, vocab_size)
+
+    def _pool_hidden_states(self, hidden_state: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
+        """
+        Pool hidden states based on pooling_strategy.
+
+        Args:
+            hidden_state: [batch_size, seq_len, hidden_size]
+            attention_mask: [batch_size, seq_len]
+
+        Returns:
+            pooled_output: [batch_size, hidden_size]
+        """
+        if self.pooling_strategy == "mean":
+            # Mean pooling with attention mask
+            attention_mask_expanded = attention_mask.unsqueeze(-1).expand(hidden_state.size()).float()
+            sum_embeddings = torch.sum(hidden_state * attention_mask_expanded, dim=1)
+            sum_mask = attention_mask.sum(dim=1, keepdim=True).float()
+            sum_mask = torch.clamp(sum_mask, min=1e-9)
+            pooled = sum_embeddings / sum_mask
+
+        elif self.pooling_strategy == "attention":
+            # Attention-weighted pooling
+            # Compute attention scores for each token
+            attention_scores = self.attention_pooling(hidden_state)  # [batch_size, seq_len, 1]
+            attention_scores = attention_scores.squeeze(-1)  # [batch_size, seq_len]
+
+            # Mask out padding tokens (set to large negative value before softmax)
+            attention_mask_float = attention_mask.float()
+            attention_scores = attention_scores + (1.0 - attention_mask_float) * -10000.0
+
+            # Compute attention weights
+            attention_weights = torch.softmax(attention_scores, dim=1)  # [batch_size, seq_len]
+
+            # Weighted sum of hidden states
+            pooled = torch.sum(
+                hidden_state * attention_weights.unsqueeze(-1),  # [batch_size, seq_len, hidden_size]
+                dim=1
+            )  # [batch_size, hidden_size]
+
+        elif self.pooling_strategy == "cls":
+            # Use [CLS] token (first token)
+            pooled = hidden_state[:, 0, :]
+
+        else:
+            raise ValueError(f"Unknown pooling_strategy: {self.pooling_strategy}")
+
+        return pooled
+
+    def extend_position_embeddings(self, new_max_length: int):
+        """
+        Extend Longformer position embeddings to support longer sequences.
+
+        Uses linear interpolation to extend from current max_position_embeddings
+        to new_max_length. This is particularly useful for extending from 4096
+        to 16384 tokens.
+
+        Args:
+            new_max_length: New maximum sequence length (e.g., 16384)
+
+        Example:
+            model = UnionClassifier(...)
+            model.extend_position_embeddings(16384)  # Extend from 4096 to 16384
+        """
+        if self.model_type != "longformer":
+            print(f"Warning: extend_position_embeddings only works for Longformer, not {self.model_type}")
+            return
+
+        # Check if we're using LED or pure Longformer
+        if "led" in self.encoder.__class__.__name__.lower():
+            print("Warning: Position extension not supported for LED encoder")
+            return
+
+        current_max_length = self.config.max_position_embeddings
+
+        if new_max_length <= current_max_length:
+            print(f"New max length {new_max_length} <= current {current_max_length}, no extension needed")
+            return
+
+        print(f"\nExtending position embeddings: {current_max_length} -> {new_max_length}")
+        print(f"Method: Linear interpolation")
+
+        # Get the current position embeddings
+        old_embeddings = self.encoder.embeddings.position_embeddings.weight.data
+        embedding_dim = old_embeddings.size(1)
+
+        # Create new position embeddings with interpolation
+        import torch.nn.functional as F
+
+        # Add batch dimension for interpolation: [current_len, dim] -> [1, dim, current_len]
+        old_embeddings_transposed = old_embeddings.transpose(0, 1).unsqueeze(0)
+
+        # Interpolate to new length
+        new_embeddings_transposed = F.interpolate(
+            old_embeddings_transposed,
+            size=new_max_length,
+            mode='linear',
+            align_corners=False
+        )
+
+        # Remove batch dimension and transpose back: [1, dim, new_len] -> [new_len, dim]
+        new_embeddings = new_embeddings_transposed.squeeze(0).transpose(0, 1)
+
+        # Replace the position embeddings
+        self.encoder.embeddings.position_embeddings = nn.Embedding(new_max_length, embedding_dim)
+        self.encoder.embeddings.position_embeddings.weight.data = new_embeddings
+
+        # Update config
+        self.config.max_position_embeddings = new_max_length
+        self.encoder.config.max_position_embeddings = new_max_length
+
+        # Update position_ids buffer if it exists
+        if hasattr(self.encoder.embeddings, 'position_ids'):
+            self.encoder.embeddings.register_buffer(
+                "position_ids",
+                torch.arange(new_max_length).expand((1, -1))
+            )
+
+        print(f"✓ Position embeddings extended to {new_max_length}")
+        print(f"  New embedding shape: {self.encoder.embeddings.position_embeddings.weight.shape}")
 
     def forward(
         self,
@@ -181,17 +340,12 @@ class UnionClassifier(nn.Module):
 
             pooled_outputs = []
             for i, hidden_state in enumerate(all_hidden_states[1:]):  # Skip embedding layer
-                # For LED/Longformer, use mean pooling; for BERT, use [CLS] token
+                # Pool this layer using configured strategy
                 if self.model_type == "longformer":
-                    # Mean pooling with attention mask for this layer
-                    attention_mask_expanded = attention_mask.unsqueeze(-1).expand(hidden_state.size()).float()
-                    sum_embeddings = torch.sum(hidden_state * attention_mask_expanded, dim=1)  # [batch_size, hidden_size]
-                    sum_mask = attention_mask.sum(dim=1, keepdim=True).float()  # [batch_size, 1]
-                    sum_mask = torch.clamp(sum_mask, min=1e-9)
-                    layer_pooled = sum_embeddings / sum_mask  # [batch_size, hidden_size]
+                    layer_pooled = self._pool_hidden_states(hidden_state, attention_mask)
                 else:
-                    # Extract [CLS] token (first token)
-                    layer_pooled = hidden_state[:, 0, :]  # [batch_size, hidden_size]
+                    # For BERT, use [CLS] token
+                    layer_pooled = hidden_state[:, 0, :]
 
                 # Apply layer-specific pooler with tanh activation
                 pooled = torch.tanh(self.layer_poolers[i](layer_pooled))
@@ -205,20 +359,10 @@ class UnionClassifier(nn.Module):
                 pooled_output = encoder_outputs.pooler_output
             else:
                 # LED encoder doesn't have pooler and [CLS] token is not meaningful
-                # Use mean pooling over all tokens instead (much better for LED)
+                # Use configured pooling strategy
                 if self.model_type == "longformer":
-                    # Mean pooling with attention mask
-                    hidden_state = encoder_outputs.last_hidden_state  # [batch_size, seq_len, hidden_size]
-                    attention_mask_expanded = attention_mask.unsqueeze(-1).expand(hidden_state.size()).float()
-                    sum_embeddings = torch.sum(hidden_state * attention_mask_expanded, dim=1)  # [batch_size, hidden_size]
-
-                    # Count valid tokens per sample (sum across sequence dimension only)
-                    sum_mask = attention_mask.sum(dim=1, keepdim=True).float()  # [batch_size, 1]
-
-                    # Clamp to avoid division by zero
-                    sum_mask = torch.clamp(sum_mask, min=1e-9)
-
-                    pooled_output = sum_embeddings / sum_mask  # [batch_size, hidden_size]
+                    hidden_state = encoder_outputs.last_hidden_state
+                    pooled_output = self._pool_hidden_states(hidden_state, attention_mask)
                 else:
                     # For other models without pooler, use [CLS] token
                     pooled_output = encoder_outputs.last_hidden_state[:, 0, :]
@@ -306,6 +450,7 @@ class UnionClassifier(nn.Module):
 def create_model(
     model_type: str = "bert",
     model_name: Optional[str] = None,
+    extend_position_embeddings: Optional[int] = None,
     **kwargs
 ) -> UnionClassifier:
     """
@@ -314,10 +459,20 @@ def create_model(
     Args:
         model_type: "bert" or "longformer"
         model_name: Optional model name (uses default if None)
+        extend_position_embeddings: If provided, extend position embeddings to this length
+                                   (only for pure Longformer, not LED). Example: 16384
         **kwargs: Additional arguments for UnionClassifier
 
     Returns:
         UnionClassifier model
+
+    Example:
+        # Create Longformer with extended 16384 positions
+        model = create_model(
+            model_type="longformer",
+            model_name="allenai/longformer-base-4096",
+            extend_position_embeddings=16384
+        )
     """
     # Default model names
     default_models = {
@@ -328,8 +483,15 @@ def create_model(
     if model_name is None:
         model_name = default_models.get(model_type, "bert-base-uncased")
 
-    return UnionClassifier(
+    # Create model
+    model = UnionClassifier(
         model_name=model_name,
         model_type=model_type,
         **kwargs
     )
+
+    # Extend position embeddings if requested
+    if extend_position_embeddings is not None:
+        model.extend_position_embeddings(extend_position_embeddings)
+
+    return model
