@@ -140,7 +140,7 @@ def get_lora_args():
                         help="WritingPrompts batch size for combined mode (default: uses --train_batch_size)")
     parser.add_argument("--award_batch_size", type=int, default=None,
                         help="Award-winning batch size for combined mode (default: uses --train_batch_size)")
-    parser.add_argument("--eval_batch_size", type=int, default=16,
+    parser.add_argument("--eval_batch_size", type=int, default=2,
                         help="Evaluation batch size")
     parser.add_argument("--learning_rate", type=float, default=3e-4,
                         help="Learning rate (typically higher for LoRA, e.g., 3e-4)")

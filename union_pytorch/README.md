@@ -542,6 +542,7 @@ torchrun --nproc_per_node=2
 ```
 ```bash
 python train_lora.py \
+    --resume_from_checkpoint ../outpu_new_/checkpoint-500 \
     --task_name train \
     --use_reconstruction \
     --dataset_mode combined \
@@ -550,8 +551,8 @@ python train_lora.py \
     --output_dir ../output_new \
     --model_type longformer \
     --max_seq_length 16384 \
-    --train_batch_size 8 \
-    --eval_batch_size 8 \
+    --award_batch_size 2 \
+    --wp_batch_size 8 \
     --learning_rate 3e-4 \
     --num_train_epochs 3 \
     --warmup_steps 500 \
