@@ -422,12 +422,15 @@ def main(_):
     if FLAGS.use_gpu:
         session_config = tf.ConfigProto(
             allow_soft_placement=True,
-            log_device_placement=False,
+            log_device_placement=True,  # Enable to see device placement
             gpu_options=tf.GPUOptions(
                 allow_growth=True,  # Dynamically allocate GPU memory
-                per_process_gpu_memory_fraction=0.9  # Use up to 90% of GPU memory
+                per_process_gpu_memory_fraction=0.9,  # Use up to 90% of GPU memory
+                visible_device_list='0'  # Use first GPU
             )
         )
+        print("\n⚠ IMPORTANT: If you see 'Computing on CPU' in the logs below,")
+        print("  the model is NOT using GPU. Check CUDA/cuDNN installation.\n")
     else:
         # Force CPU usage
         session_config = tf.ConfigProto(
