@@ -116,10 +116,20 @@ if tf.__version__.startswith('2.'):
     if not hasattr(tf, 'train'):
         tf.train = tf_v1.train
 
-    # Add estimator module
-    if not hasattr(tf, 'estimator'):
-        tf.estimator = tf_v1.estimator
-        tf_v1.estimator = tf_v1.estimator
+    # Add estimator module - it's a separate import in TF2
+    try:
+        from tensorflow.compat.v1 import estimator as tf1_estimator
+        tf.estimator = tf1_estimator
+        tf_v1.estimator = tf1_estimator
+    except ImportError:
+        # Fallback - estimator might be in a different location
+        try:
+            import tensorflow_estimator as tf_est
+            tf.estimator = tf_est
+            tf_v1.estimator = tf_est
+        except ImportError:
+            print("WARNING: Could not import estimator module")
+            pass
 
     # Replace tensorflow in sys.modules
     sys.modules['tensorflow'] = tf_v1
