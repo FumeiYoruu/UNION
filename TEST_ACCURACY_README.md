@@ -8,10 +8,10 @@ The `test_union_accuracy.py` script evaluates UNION's binary classification perf
 
 ## Prerequisites
 
-1. **Python Environment**: Same as main UNION project
-   - Python 3.7.0
-   - tensorflow-gpu 1.14.0
-   - numpy 1.18.1
+1. **Python Environment**:
+   - Python 3.7+ (3.7-3.10 recommended)
+   - TensorFlow 1.14.0 OR TensorFlow 2.x (see installation below)
+   - numpy
    - scikit-learn (for metrics)
 
 2. **Required Files**:
@@ -21,10 +21,29 @@ The `test_union_accuracy.py` script evaluates UNION's binary classification perf
 
 ## Installation
 
+### Option 1: TensorFlow 1.14.0 (Original Environment)
+
 ```bash
-# Install scikit-learn for metrics (if not already installed)
+# Use the original UNION environment
+pip install tensorflow-gpu==1.14.0  # or tensorflow==1.14.0 for CPU
 pip install scikit-learn==0.22.1
+pip install numpy==1.18.1
 ```
+
+**Use this script**: `test_union_accuracy.py`
+
+### Option 2: TensorFlow 2.x (Modern Environment)
+
+```bash
+# For newer systems with TensorFlow 2.x
+pip install tensorflow>=2.0  # or tensorflow-gpu>=2.0
+pip install scikit-learn
+pip install numpy
+```
+
+**Use this script**: `test_union_accuracy_tf2.py`
+
+**Note**: The TF2 version uses `tensorflow.compat.v1` to maintain compatibility with the original UNION model code.
 
 ## Data Preparation
 
@@ -90,8 +109,19 @@ unzip uncased_L-12_H-768_A-12.zip -d ./model/
 
 ### Basic Usage (WritingPrompts)
 
+**For TensorFlow 1.14.0:**
 ```bash
 python test_union_accuracy.py \
+    --data_dir ./Data/WP \
+    --init_checkpoint ./model/uncased_L-12_H-768_A-12/union_wp/model.ckpt \
+    --bert_config_file ./model/uncased_L-12_H-768_A-12/bert_config.json \
+    --vocab_file ./model/uncased_L-12_H-768_A-12/vocab.txt \
+    --output_dir ./test_results
+```
+
+**For TensorFlow 2.x:**
+```bash
+python test_union_accuracy_tf2.py \
     --data_dir ./Data/WP \
     --init_checkpoint ./model/uncased_L-12_H-768_A-12/union_wp/model.ckpt \
     --bert_config_file ./model/uncased_L-12_H-768_A-12/bert_config.json \
@@ -259,6 +289,22 @@ Based on the UNION paper (EMNLP 2020), expected test accuracy:
 
 ## Troubleshooting
 
+### Error: "AttributeError: module 'tensorflow' has no attribute 'flags'"
+
+**Cause**: You're using TensorFlow 2.x but running the TF1 script.
+
+**Solution**: Use the TF2-compatible script:
+```bash
+python test_union_accuracy_tf2.py \
+    --data_dir ./Data/WP \
+    --init_checkpoint ./model/uncased_L-12_H-768_A-12/union_wp/model.ckpt
+```
+
+Or install TensorFlow 1.14.0:
+```bash
+pip install tensorflow==1.14.0
+```
+
 ### Error: "Test data files not found"
 
 **Solution**: Generate or download the test data first:
@@ -388,4 +434,11 @@ python test_union_accuracy.py \
 
 # 6. Check results
 cat ./test_results/test_metrics.txt
+
+python test_union_accuracy.py \
+      --data_dir /scratch1/tanalvin/Data/WritingPrompts \
+      --init_checkpoint ./model/uncased_L-12_H-768_A-12/union_wp/model.ckpt \
+      --bert_config_file ./model/uncased_L-12_H-768_A-12/bert_config.json \
+      --vocab_file ./model/uncased_L-12_H-768_A-12/vocab.txt \
+      --output_dir ./test_results
 ```
