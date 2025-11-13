@@ -97,6 +97,29 @@ ls -la ./model/uncased_L-12_H-768_A-12/union_wp/
 # Should show: model.ckpt.data-*, model.ckpt.index, model.ckpt.meta, checkpoint
 ```
 
+## GPU Usage
+
+**Yes, the code uses GPU by default if available!**
+
+When you run the compatibility test or main script, you'll see:
+```
+GPU(s) available: 1 device(s)
+  GPU 0: /physical_device:GPU:0
+GPU acceleration will be used by default
+```
+
+**To force CPU-only** (not recommended - 20-40x slower):
+```bash
+python test_union_accuracy_tf2.py --no-use_gpu ...
+```
+
+**To use specific GPU** (if you have multiple):
+```bash
+python test_union_accuracy_tf2.py --gpu_device 1 ...
+```
+
+See `GPU_SETUP.md` for detailed GPU configuration.
+
 ## Understanding Results
 
 After running, check:

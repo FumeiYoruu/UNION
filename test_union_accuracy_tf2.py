@@ -320,8 +320,20 @@ def main():
                         help='Total batch size for predictions')
     parser.add_argument('--use_reconstruction', action='store_true', default=False,
                         help='Whether the model was trained with reconstruction task')
+    parser.add_argument('--use_gpu', action='store_true', default=True,
+                        help='Whether to use GPU if available (default: True)')
+    parser.add_argument('--gpu_device', type=str, default='0',
+                        help='GPU device to use (e.g., "0" or "0,1" for multiple GPUs)')
 
     args = parser.parse_args()
+
+    # GPU configuration
+    if not args.use_gpu:
+        print("GPU disabled by user - using CPU only")
+        os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+    else:
+        os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_device
+        print(f"GPU device(s) set to: {args.gpu_device}")
 
     tf.logging.set_verbosity(tf.logging.INFO)
 
