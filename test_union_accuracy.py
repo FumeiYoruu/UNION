@@ -328,23 +328,32 @@ def main(_):
         try:
             from tensorflow.python.client import device_lib
             # Force TensorFlow to initialize and detect devices
+            print("Detecting devices...")
             local_devices = device_lib.list_local_devices()
+
+            print(f"Total devices found: {len(local_devices)}")
+            for dev in local_devices:
+                print(f"  - {dev.name} ({dev.device_type})")
+
             gpus = [x for x in local_devices if x.device_type == 'GPU']
 
             if gpus:
-                print(f"Number of GPUs available: {len(gpus)}")
+                print(f"\nNumber of GPUs available: {len(gpus)}")
                 for gpu in gpus:
-                    gpu_name = gpu.physical_device_desc.split(',')[0].replace('device: ', '')
-                    print(f"  - {gpu.name}: {gpu_name}")
-                print(f"GPU will be used for inference")
+                    try:
+                        gpu_name = gpu.physical_device_desc.split(',')[0].replace('device: ', '')
+                        print(f"  - {gpu.name}: {gpu_name}")
+                    except:
+                        print(f"  - {gpu.name}")
+                print(f"✓ GPU will be used for inference")
             else:
-                print(f"WARNING: --use_gpu=True but no GPU detected!")
-                print(f"Falling back to CPU inference (will be slower)")
-                print(f"\nTo debug, run on your server:")
-                print(f"  python -c \"from tensorflow.python.client import device_lib; print(device_lib.list_local_devices())\"")
+                print(f"\n✗ WARNING: --use_gpu=True but no GPU detected!")
+                print(f"  Falling back to CPU inference (will be slower)")
+                print(f"\n  Debug: Found {len(local_devices)} total devices, but 0 GPUs")
+                print(f"  To debug, run: python -c \"from tensorflow.python.client import device_lib; print(device_lib.list_local_devices())\"")
         except Exception as e:
-            print(f"Error detecting GPU: {e}")
-            print(f"Falling back to CPU inference")
+            print(f"✗ Error detecting GPU: {e}")
+            print(f"  Falling back to CPU inference")
     else:
         print(f"GPU disabled by user (--use_gpu=False)")
         print(f"Using CPU for inference")
