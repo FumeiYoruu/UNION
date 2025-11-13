@@ -19,17 +19,25 @@ import numpy as np
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support, confusion_matrix, classification_report
 import tensorflow as tf
 
-# Import estimator separately since it's not always in tf.compat.v1
+# Import estimator classes - they exist in TF internals even if tf.estimator doesn't
 try:
+    # Try direct import from internal modules (works in TF2)
     from tensorflow.python.estimator.estimator import Estimator
     from tensorflow.python.estimator.run_config import RunConfig
     from tensorflow.python.estimator.model_fn import EstimatorSpec, ModeKeys
-except ImportError:
-    # Fallback to compat.v1 if available
-    Estimator = tf.estimator.Estimator if hasattr(tf, 'estimator') else None
-    RunConfig = tf.estimator.RunConfig if hasattr(tf, 'estimator') else None
-    EstimatorSpec = tf.estimator.EstimatorSpec if hasattr(tf, 'estimator') else None
-    ModeKeys = tf.estimator.ModeKeys if hasattr(tf, 'estimator') else None
+    print("✓ Loaded Estimator classes from tensorflow.python.estimator")
+except ImportError as e:
+    # Fallback: try tensorflow_estimator package
+    try:
+        from tensorflow_estimator.python.estimator.estimator import Estimator
+        from tensorflow_estimator.python.estimator.run_config import RunConfig
+        from tensorflow_estimator.python.estimator.model_fn import EstimatorSpec, ModeKeys
+        print("✓ Loaded Estimator classes from tensorflow_estimator")
+    except ImportError:
+        raise ImportError(
+            "Could not import Estimator classes. Please ensure TensorFlow is properly installed.\n"
+            f"Original error: {e}"
+        )
 
 import union_modeling as modeling
 import tokenization
