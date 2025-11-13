@@ -228,7 +228,8 @@ def model_fn_builder(bert_config, num_labels, init_checkpoint, use_tpu):
             "labels": label_ids
         }
 
-        output_spec = tf.contrib.tpu.TPUEstimatorSpec(
+        # Use regular EstimatorSpec for GPU/CPU instead of TPUEstimatorSpec
+        output_spec = tf.estimator.EstimatorSpec(
             mode=mode,
             predictions=predictions
         )
@@ -388,18 +389,16 @@ def main():
         use_tpu=False
     )
 
-    # Create estimator
-    run_config = tf.contrib.tpu.RunConfig(
+    # Create estimator - use regular Estimator for GPU/CPU instead of TPUEstimator
+    run_config = tf.estimator.RunConfig(
         model_dir=args.output_dir,
         save_checkpoints_steps=1000,
         keep_checkpoint_max=1
     )
 
-    estimator = tf.contrib.tpu.TPUEstimator(
-        use_tpu=False,
+    estimator = tf.estimator.Estimator(
         model_fn=model_fn,
-        config=run_config,
-        predict_batch_size=args.predict_batch_size
+        config=run_config
     )
 
     # Run predictions
