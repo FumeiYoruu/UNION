@@ -22,26 +22,39 @@ if tf.__version__.startswith('2.'):
     try:
         # Try the estimator path that usually works
         from tensorflow.compat.v1.estimator import tpu as tpu_module
-    except (ImportError, AttributeError):
+        # RunConfig is in the main estimator module, not tpu submodule
+        from tensorflow.compat.v1 import estimator as estimator_module
+        tpu_success = True
+    except (ImportError, AttributeError) as e:
         try:
             # Alternative: Try importing from estimator directly
-            import tensorflow.estimator as tf_estimator
-            tpu_module = tf_estimator.tpu
+            import tensorflow.estimator as estimator_module
+            tpu_module = estimator_module.tpu
+            tpu_success = True
         except (ImportError, AttributeError):
-            # Final fallback - use compat.v1 train
+            # Final fallback
             print("WARNING: Could not import TPU estimator from standard paths.")
             tpu_module = None
+            estimator_module = None
+            tpu_success = False
 
     # Create contrib.tpu stub
     class ContribTPU:
         """Stub for tf.contrib.tpu that maps to compat.v1.estimator.tpu"""
         def __init__(self):
-            if tpu_module:
-                self.TPUEstimator = tpu_module.TPUEstimator
-                self.TPUEstimatorSpec = tpu_module.TPUEstimatorSpec
-                self.TPUConfig = tpu_module.TPUConfig
-                self.RunConfig = tpu_module.RunConfig
-                self.InputPipelineConfig = tpu_module.InputPipelineConfig
+            if tpu_success and tpu_module:
+                # TPU-specific classes from tpu module
+                self.TPUEstimator = getattr(tpu_module, 'TPUEstimator', None)
+                self.TPUEstimatorSpec = getattr(tpu_module, 'TPUEstimatorSpec', None)
+                self.TPUConfig = getattr(tpu_module, 'TPUConfig', None)
+                self.InputPipelineConfig = getattr(tpu_module, 'InputPipelineConfig', None)
+
+                # RunConfig is in the main estimator module
+                if estimator_module:
+                    self.RunConfig = getattr(estimator_module, 'RunConfig',
+                                            getattr(tpu_module, 'RunConfig', None))
+                else:
+                    self.RunConfig = getattr(tpu_module, 'RunConfig', None)
             else:
                 # If TPU module not found, these will be None
                 self.TPUEstimator = None
