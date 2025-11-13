@@ -335,10 +335,11 @@ def main(_):
             for dev in local_devices:
                 print(f"  - {dev.name} ({dev.device_type})")
 
-            gpus = [x for x in local_devices if x.device_type == 'GPU']
+            # Check for both GPU and XLA_GPU devices
+            gpus = [x for x in local_devices if x.device_type in ['GPU', 'XLA_GPU']]
 
             if gpus:
-                print(f"\nNumber of GPUs available: {len(gpus)}")
+                print(f"\nNumber of GPU devices available: {len(gpus)}")
                 for gpu in gpus:
                     try:
                         gpu_name = gpu.physical_device_desc.split(',')[0].replace('device: ', '')
@@ -346,6 +347,12 @@ def main(_):
                     except:
                         print(f"  - {gpu.name}")
                 print(f"✓ GPU will be used for inference")
+
+                # Count actual physical GPUs (not XLA wrappers)
+                physical_gpus = [x for x in gpus if 'XLA' not in x.device_type]
+                xla_gpus = [x for x in gpus if 'XLA' in x.device_type]
+                if xla_gpus and not physical_gpus:
+                    print(f"  Note: Using {len(xla_gpus)} GPU(s) via XLA acceleration")
             else:
                 print(f"\n✗ WARNING: --use_gpu=True but no GPU detected!")
                 print(f"  Falling back to CPU inference (will be slower)")
