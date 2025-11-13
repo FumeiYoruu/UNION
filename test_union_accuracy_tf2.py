@@ -18,6 +18,19 @@ import tf2_compat_setup
 import numpy as np
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support, confusion_matrix, classification_report
 import tensorflow as tf
+
+# Import estimator separately since it's not always in tf.compat.v1
+try:
+    from tensorflow.python.estimator.estimator import Estimator
+    from tensorflow.python.estimator.run_config import RunConfig
+    from tensorflow.python.estimator.model_fn import EstimatorSpec, ModeKeys
+except ImportError:
+    # Fallback to compat.v1 if available
+    Estimator = tf.estimator.Estimator if hasattr(tf, 'estimator') else None
+    RunConfig = tf.estimator.RunConfig if hasattr(tf, 'estimator') else None
+    EstimatorSpec = tf.estimator.EstimatorSpec if hasattr(tf, 'estimator') else None
+    ModeKeys = tf.estimator.ModeKeys if hasattr(tf, 'estimator') else None
+
 import union_modeling as modeling
 import tokenization
 
@@ -229,7 +242,7 @@ def model_fn_builder(bert_config, num_labels, init_checkpoint, use_tpu):
         }
 
         # Use regular EstimatorSpec for GPU/CPU instead of TPUEstimatorSpec
-        output_spec = tf.estimator.EstimatorSpec(
+        output_spec = EstimatorSpec(
             mode=mode,
             predictions=predictions
         )
@@ -390,13 +403,13 @@ def main():
     )
 
     # Create estimator - use regular Estimator for GPU/CPU instead of TPUEstimator
-    run_config = tf.estimator.RunConfig(
+    run_config = RunConfig(
         model_dir=args.output_dir,
         save_checkpoints_steps=1000,
         keep_checkpoint_max=1
     )
 
-    estimator = tf.estimator.Estimator(
+    estimator = Estimator(
         model_fn=model_fn,
         config=run_config
     )
