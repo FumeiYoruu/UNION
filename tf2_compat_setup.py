@@ -67,15 +67,28 @@ if tf.__version__.startswith('2.'):
             self._gfile = gfile_module
 
         def __getattr__(self, name):
+            # First, try to get the attribute directly (for things like GFile)
+            if hasattr(self._gfile, name):
+                return getattr(self._gfile, name)
+
+            # Special mappings for TF1 -> TF2
+            # In TF1: tf.gfile.Open() returns file object
+            # In TF2: tf.io.gfile.GFile() returns file object
+            if name == 'Open':
+                return self._gfile.GFile
+
             # For TF1 compatibility, map capitalized methods to lowercase
-            # TF1: Exists, Open, etc.
-            # TF2: exists, open, etc.
-            if name in ['Exists', 'MakeDirs', 'Remove', 'Rename', 'Stat',
-                        'Walk', 'Glob', 'IsDirectory', 'ListDirectory', 'Copy']:
-                lowercase_name = name.lower() if name != 'MakeDirs' else 'makedirs'
+            # TF1: Exists, MakeDirs, etc.
+            # TF2: exists, makedirs, etc.
+            lowercase_name = name.lower()
+
+            # Try lowercase version
+            if hasattr(self._gfile, lowercase_name):
                 return getattr(self._gfile, lowercase_name)
-            # For GFile, just pass through
-            return getattr(self._gfile, name)
+
+            # If nothing works, raise AttributeError
+            raise AttributeError(f"module 'tf.gfile' has no attribute '{name}'. "
+                               f"Available: {dir(self._gfile)}")
 
     gfile_wrapper = GFileWrapper(tf.io.gfile)
     tf.gfile = gfile_wrapper
