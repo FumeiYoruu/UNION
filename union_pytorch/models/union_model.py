@@ -47,9 +47,10 @@ class UnionClassifier(nn.Module):
             reconstruction_weight: Weight for reconstruction loss
             gradient_checkpointing: Enable gradient checkpointing to reduce memory usage
             pooling_strategy: Pooling strategy for Longformer - "mean", "attention", or "cls"
-                - "mean": Simple average of all tokens (default, fast but may dilute signal)
+                - "mean": Simple average of all tokens (fast but may dilute signal)
                 - "attention": Learned attention weights over tokens (better for long sequences)
-                - "cls": Use [CLS] token (not recommended for Longformer without fine-tuning)
+                - "cls": Use [CLS] token (RECOMMENDED for pure Longformer models like allenai/longformer-base-4096,
+                         which have specialized CLS token. Not recommended for LED models.)
         """
         super().__init__()
 
@@ -92,6 +93,8 @@ class UnionClassifier(nn.Module):
                 print(f"LED encoder loaded with max_encoder_position_embeddings: {max_pos}")
             else:
                 # Use pure Longformer model (better for classification)
+                # Pure Longformer (e.g., allenai/longformer-base-4096) has specialized CLS token
+                # and should use 'cls' pooling strategy for sequence classification
                 print(f"Loading pure Longformer model from {model_name}...")
                 self.config = AutoConfig.from_pretrained(model_name)
                 self.config.hidden_dropout_prob = hidden_dropout_prob
@@ -104,6 +107,7 @@ class UnionClassifier(nn.Module):
 
                 max_pos = getattr(self.config, 'max_position_embeddings', 4096)
                 print(f"Longformer model loaded with max_position_embeddings: {max_pos}")
+                print(f"Note: Pure Longformer models have specialized CLS token - use pooling_strategy='cls'")
 
                 # Position extension will be handled separately if needed
                 # Call extend_position_embeddings() after initialization

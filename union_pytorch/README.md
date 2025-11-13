@@ -570,7 +570,35 @@ python train_lora.py \
     --fp16 \
     --use_flash_attention
 ```
+```bash
+python train_lora.py \
+      --task_name train \
+      --use_reconstruction \
+      --dataset_mode combined \
+      --award_data_dir /scratch1/tanalvin/Data/Award-winning \
+      --wp_data_dir /scratch1/tanalvin/Data/WritingPrompts \
+      --output_dir ../output_longformer_attention \
+      --model_type longformer \
+      --model_name allenai/longformer-base-4096 \
+      --max_seq_length 4096 \
+      --pooling_strategy attention \
+      --award_batch_size 2 \
+      --wp_batch_size 8 \
+      --learning_rate 3e-4 \
+      --num_train_epochs 3 \
+      --warmup_steps 500 \
+      --gradient_accumulation_steps 8 \
+      --lora_r 8 \
+      --lora_alpha 16 \
+      --fp16 \
+      --use_flash_attention \
+      --lazy_loading \
+      --train_data_fraction 0.1 \
+      --logging_steps 50 \
+      --save_steps 100 \
+      --eval_steps 500
 
+```
 
 **If training gets interrupted:**
 ```bash

@@ -77,7 +77,8 @@ def get_lora_args():
                         choices=["mean", "attention", "cls"],
                         help="Pooling strategy for Longformer: 'mean' (simple average), "
                              "'attention' (learned attention weights, better for long contexts), "
-                             "'cls' (use [CLS] token)")
+                             "'cls' (use [CLS] token - RECOMMENDED for pure Longformer models like allenai/longformer-base-4096, "
+                             "auto-enabled for pure Longformer). LED models should use 'mean' or 'attention'.")
 
     # LoRA-specific arguments
     parser.add_argument("--lora_r", type=int, default=8,
@@ -184,6 +185,7 @@ def get_lora_args():
                         help="Device to use for training")
     parser.add_argument("--seed", type=int, default=42,
                         help="Random seed")
+    
 
     # Checkpoint
     parser.add_argument("--init_checkpoint", type=str, default=None,
@@ -849,12 +851,22 @@ def main():
 
     # For pure Longformer (not LED), automatically extend position embeddings if max_seq_length > model's native length
     extend_positions = None
+    pooling_strategy = args.pooling_strategy
+
     if args.model_type == "longformer" and "led" not in args.model_name.lower():
         # Pure Longformer models typically have 4096 max positions
         # If user requests longer, we'll extend via interpolation
         if args.max_seq_length > 4096:
             extend_positions = args.max_seq_length
             print(f"Will extend Longformer position embeddings from 4096 to {extend_positions}")
+
+        # Pure Longformer models (like allenai/longformer-base-4096) have specialized CLS token
+        # and are designed to use CLS pooling, NOT mean pooling
+        # Override pooling strategy to 'cls' unless user explicitly specified otherwise
+        if args.pooling_strategy == "mean":  # Default value
+            pooling_strategy = "cls"
+            print(f"Auto-setting pooling_strategy='cls' for pure Longformer model (has specialized CLS token)")
+            print(f"Note: Pure Longformer uses LongformerForSequenceClassification architecture with CLS pooling")
 
     base_model = create_model(
         model_type=args.model_type,
@@ -864,7 +876,7 @@ def main():
         reconstruction_weight=args.reconstruction_weight,
         gradient_checkpointing=False,  # Disable for LoRA
         extend_position_embeddings=extend_positions,  # Extend if needed
-        pooling_strategy=args.pooling_strategy,  # Pooling strategy
+        pooling_strategy=pooling_strategy,  # Pooling strategy (auto-adjusted for pure Longformer)
     )
 
     # Load initial weights if provided (before wrapping with LoRA)
