@@ -34,22 +34,37 @@ if tf.__version__.startswith('2.'):
     # tf.contrib was completely removed in TF2, need to create a stub
     # The UNION code uses tf.contrib.tpu which we need to provide
     if not hasattr(tf, 'contrib'):
+        # Import TPU components first (outside class definition)
+        try:
+            # Try new location first (TF 2.x)
+            from tensorflow.python.estimator import estimator_lib as estimator
+            tpu_estimator = estimator.tpu
+        except (ImportError, AttributeError):
+            # Fallback to compat.v1 path
+            try:
+                from tensorflow.compat.v1.estimator import tpu as tpu_estimator
+            except ImportError:
+                # Final fallback - create minimal stubs
+                print("WARNING: Could not import TPU estimator. Creating minimal stubs.")
+                class MinimalTPU:
+                    pass
+                tpu_estimator = MinimalTPU()
+
         # Create a minimal stub for tf.contrib.tpu
         class ContribStub:
-            class TPU:
-                # Import the actual TPU components from compat.v1
-                from tensorflow.compat.v1 import estimator
+            pass
 
-                # TPUEstimator and related classes
-                TPUEstimator = estimator.tpu.TPUEstimator
-                TPUEstimatorSpec = estimator.tpu.TPUEstimatorSpec
-                TPUConfig = estimator.tpu.TPUConfig
-                RunConfig = estimator.tpu.RunConfig
-                InputPipelineConfig = estimator.tpu.InputPipelineConfig
+        class TPUStub:
+            # Map to actual TPU components if available
+            TPUEstimator = getattr(tpu_estimator, 'TPUEstimator', None)
+            TPUEstimatorSpec = getattr(tpu_estimator, 'TPUEstimatorSpec', None)
+            TPUConfig = getattr(tpu_estimator, 'TPUConfig', None)
+            RunConfig = getattr(tpu_estimator, 'RunConfig', None)
+            InputPipelineConfig = getattr(tpu_estimator, 'InputPipelineConfig', None)
 
-            tpu = TPU()
-
-        tf.contrib = ContribStub()
+        contrib_stub = ContribStub()
+        contrib_stub.tpu = TPUStub()
+        tf.contrib = contrib_stub
 
     # Replace tensorflow in sys.modules so all imports use patched version
     sys.modules['tensorflow'] = tf_v1
