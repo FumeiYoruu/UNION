@@ -320,30 +320,36 @@ def main(_):
     tf.logging.set_verbosity(tf.logging.INFO)
 
     # Check GPU availability
-    from tensorflow.python.client import device_lib
-    local_devices = device_lib.list_local_devices()
-    gpus = [x for x in local_devices if x.device_type == 'GPU']
+    print(f"\n{'='*60}")
+    print(f"DEVICE CONFIGURATION")
+    print(f"{'='*60}")
 
     if FLAGS.use_gpu:
-        if gpus:
-            print(f"\n{'='*60}")
-            print(f"GPU CONFIGURATION")
-            print(f"{'='*60}")
-            print(f"Number of GPUs available: {len(gpus)}")
-            for gpu in gpus:
-                print(f"  - {gpu.name}")
-            print(f"GPU will be used for inference")
-            print(f"{'='*60}\n")
-        else:
-            print(f"\n{'='*60}")
-            print(f"WARNING: --use_gpu=True but no GPU detected!")
-            print(f"Falling back to CPU inference (will be slower)")
-            print(f"{'='*60}\n")
+        try:
+            from tensorflow.python.client import device_lib
+            # Force TensorFlow to initialize and detect devices
+            local_devices = device_lib.list_local_devices()
+            gpus = [x for x in local_devices if x.device_type == 'GPU']
+
+            if gpus:
+                print(f"Number of GPUs available: {len(gpus)}")
+                for gpu in gpus:
+                    gpu_name = gpu.physical_device_desc.split(',')[0].replace('device: ', '')
+                    print(f"  - {gpu.name}: {gpu_name}")
+                print(f"GPU will be used for inference")
+            else:
+                print(f"WARNING: --use_gpu=True but no GPU detected!")
+                print(f"Falling back to CPU inference (will be slower)")
+                print(f"\nTo debug, run on your server:")
+                print(f"  python -c \"from tensorflow.python.client import device_lib; print(device_lib.list_local_devices())\"")
+        except Exception as e:
+            print(f"Error detecting GPU: {e}")
+            print(f"Falling back to CPU inference")
     else:
-        print(f"\n{'='*60}")
         print(f"GPU disabled by user (--use_gpu=False)")
         print(f"Using CPU for inference")
-        print(f"{'='*60}\n")
+
+    print(f"{'='*60}\n")
 
     # Check that data directory exists
     if not tf.gfile.Exists(FLAGS.data_dir):
