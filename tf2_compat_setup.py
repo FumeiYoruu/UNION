@@ -18,9 +18,52 @@ if tf.__version__.startswith('2.'):
     import tensorflow.compat.v1 as tf_v1
     tf_v1.disable_v2_behavior()
 
-    # Patch the main tensorflow module to add TF1 attributes
+    # Import TPU components first (outside class definition)
+    try:
+        # Try the estimator path that usually works
+        from tensorflow.compat.v1.estimator import tpu as tpu_module
+    except (ImportError, AttributeError):
+        try:
+            # Alternative: Try importing from estimator directly
+            import tensorflow.estimator as tf_estimator
+            tpu_module = tf_estimator.tpu
+        except (ImportError, AttributeError):
+            # Final fallback - use compat.v1 train
+            print("WARNING: Could not import TPU estimator from standard paths.")
+            tpu_module = None
+
+    # Create contrib.tpu stub
+    class ContribTPU:
+        """Stub for tf.contrib.tpu that maps to compat.v1.estimator.tpu"""
+        def __init__(self):
+            if tpu_module:
+                self.TPUEstimator = tpu_module.TPUEstimator
+                self.TPUEstimatorSpec = tpu_module.TPUEstimatorSpec
+                self.TPUConfig = tpu_module.TPUConfig
+                self.RunConfig = tpu_module.RunConfig
+                self.InputPipelineConfig = tpu_module.InputPipelineConfig
+            else:
+                # If TPU module not found, these will be None
+                self.TPUEstimator = None
+                self.TPUEstimatorSpec = None
+                self.TPUConfig = None
+                self.RunConfig = None
+                self.InputPipelineConfig = None
+
+    class Contrib:
+        """Stub for tf.contrib"""
+        def __init__(self):
+            self.tpu = ContribTPU()
+
+    # Patch both tf and tf_v1 to have the contrib attribute
+    contrib = Contrib()
+    tf.contrib = contrib
+    tf_v1.contrib = contrib
+
+    # Patch other TF1 attributes if missing
     if not hasattr(tf, 'gfile'):
         tf.gfile = tf.io.gfile
+        tf_v1.gfile = tf.io.gfile
 
     if not hasattr(tf, 'logging'):
         tf.logging = tf_v1.logging
@@ -31,42 +74,7 @@ if tf.__version__.startswith('2.'):
     if not hasattr(tf, 'train'):
         tf.train = tf_v1.train
 
-    # tf.contrib was completely removed in TF2, need to create a stub
-    # The UNION code uses tf.contrib.tpu which we need to provide
-    if not hasattr(tf, 'contrib'):
-        # Import TPU components first (outside class definition)
-        try:
-            # Try new location first (TF 2.x)
-            from tensorflow.python.estimator import estimator_lib as estimator
-            tpu_estimator = estimator.tpu
-        except (ImportError, AttributeError):
-            # Fallback to compat.v1 path
-            try:
-                from tensorflow.compat.v1.estimator import tpu as tpu_estimator
-            except ImportError:
-                # Final fallback - create minimal stubs
-                print("WARNING: Could not import TPU estimator. Creating minimal stubs.")
-                class MinimalTPU:
-                    pass
-                tpu_estimator = MinimalTPU()
-
-        # Create a minimal stub for tf.contrib.tpu
-        class ContribStub:
-            pass
-
-        class TPUStub:
-            # Map to actual TPU components if available
-            TPUEstimator = getattr(tpu_estimator, 'TPUEstimator', None)
-            TPUEstimatorSpec = getattr(tpu_estimator, 'TPUEstimatorSpec', None)
-            TPUConfig = getattr(tpu_estimator, 'TPUConfig', None)
-            RunConfig = getattr(tpu_estimator, 'RunConfig', None)
-            InputPipelineConfig = getattr(tpu_estimator, 'InputPipelineConfig', None)
-
-        contrib_stub = ContribStub()
-        contrib_stub.tpu = TPUStub()
-        tf.contrib = contrib_stub
-
-    # Replace tensorflow in sys.modules so all imports use patched version
+    # Replace tensorflow in sys.modules
     sys.modules['tensorflow'] = tf_v1
 
     print(f"TensorFlow 2.x detected (version {tf.__version__})")
