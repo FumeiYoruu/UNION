@@ -60,10 +60,26 @@ if tf.__version__.startswith('2.'):
     tf.contrib = contrib
     tf_v1.contrib = contrib
 
-    # Patch other TF1 attributes if missing
-    if not hasattr(tf, 'gfile'):
-        tf.gfile = tf.io.gfile
-        tf_v1.gfile = tf.io.gfile
+    # Patch tf.gfile - need to add TF1 method names (capitalized) to TF2's gfile
+    class GFileWrapper:
+        """Wrapper to add TF1-style capitalized method names to tf.io.gfile"""
+        def __init__(self, gfile_module):
+            self._gfile = gfile_module
+
+        def __getattr__(self, name):
+            # For TF1 compatibility, map capitalized methods to lowercase
+            # TF1: Exists, Open, etc.
+            # TF2: exists, open, etc.
+            if name in ['Exists', 'MakeDirs', 'Remove', 'Rename', 'Stat',
+                        'Walk', 'Glob', 'IsDirectory', 'ListDirectory', 'Copy']:
+                lowercase_name = name.lower() if name != 'MakeDirs' else 'makedirs'
+                return getattr(self._gfile, lowercase_name)
+            # For GFile, just pass through
+            return getattr(self._gfile, name)
+
+    gfile_wrapper = GFileWrapper(tf.io.gfile)
+    tf.gfile = gfile_wrapper
+    tf_v1.gfile = gfile_wrapper
 
     if not hasattr(tf, 'logging'):
         tf.logging = tf_v1.logging
