@@ -96,7 +96,9 @@ def get_lora_args():
                         default=None,
                         help="Additional modules to train besides LoRA. "
                              "If None, defaults to ['classifier'] or ['classifier', 'lm_head'] with --use_reconstruction. "
-                             "Specify explicitly to override (e.g., 'classifier lm_head layer_poolers')")
+                             "Note: 'layer_poolers' and 'attention_pooling' are automatically marked trainable when "
+                             "--use_all_layers or --pooling_strategy=attention are used (they cannot be in modules_to_save). "
+                             "Specify explicitly to override other modules (e.g., 'classifier lm_head')")
     parser.add_argument("--merge_weights", action="store_true",
                         help="Merge LoRA weights with base model after training")
 
@@ -223,12 +225,15 @@ def create_lora_model(base_model, args, device):
         Model wrapped with LoRA adapters
 
     Notes:
-        By default, saves the following modules (in addition to LoRA adapters):
-        - 'classifier': Always saved (randomly initialized for the task)
-        - 'lm_head': Saved if --use_reconstruction is enabled
-        - 'layer_poolers': Saved if --use_all_layers is enabled
+        By default, the following modules are trainable (in addition to LoRA adapters):
+        - 'classifier': Always trainable via modules_to_save (randomly initialized for the task)
+        - 'lm_head': Trainable via modules_to_save if --use_reconstruction is enabled
+        - 'layer_poolers': Manually marked trainable if --use_all_layers is enabled
+          (cannot be in modules_to_save as it's a ModuleList)
+        - 'attention_pooling': Manually marked trainable if --pooling_strategy=attention
+          (cannot be in modules_to_save as it's a Sequential)
 
-        Use --lora_modules_to_save to override these defaults.
+        Use --lora_modules_to_save to override the modules_to_save list.
     """
     # Determine target modules
     if args.lora_target_modules is None:
@@ -245,13 +250,10 @@ def create_lora_model(base_model, args, device):
         if args.use_reconstruction:
             modules_to_save.append("lm_head")
 
-        # Add layer_poolers if using multi-layer pooling
-        if args.use_all_layers:
-            modules_to_save.append("layer_poolers")
+        # Note: layer_poolers is a ModuleList and cannot be wrapped by PEFT
+        # We'll manually mark it as trainable after wrapping the model
+        # Same applies to attention_pooling which is a Sequential module
 
-        # Add attention_pooling if using attention pooling strategy
-        if hasattr(args, 'pooling_strategy') and args.pooling_strategy == "attention":
-            modules_to_save.append("attention_pooling")
     else:
         modules_to_save = args.lora_modules_to_save
 
@@ -275,6 +277,19 @@ def create_lora_model(base_model, args, device):
 
     # Wrap model with LoRA
     model = get_peft_model(base_model, lora_config)
+
+    # Manually mark additional modules as trainable (these can't be in modules_to_save)
+    # 1. layer_poolers (ModuleList) if using multi-layer pooling
+    if hasattr(model.base_model.model, 'layer_poolers'):
+        for param in model.base_model.model.layer_poolers.parameters():
+            param.requires_grad = True
+        print(f"  Manually enabled training for layer_poolers (ModuleList with {len(model.base_model.model.layer_poolers)} layers)")
+
+    # 2. attention_pooling (Sequential) if using attention pooling
+    if hasattr(model.base_model.model, 'attention_pooling'):
+        for param in model.base_model.model.attention_pooling.parameters():
+            param.requires_grad = True
+        print(f"  Manually enabled training for attention_pooling")
 
     # Print trainable parameters
     model.print_trainable_parameters()
