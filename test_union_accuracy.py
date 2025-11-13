@@ -41,6 +41,8 @@ flags.DEFINE_integer("predict_batch_size", 32,
                      "Total batch size for predictions.")
 flags.DEFINE_boolean("use_reconstruction", False,
                      "Whether the model was trained with reconstruction task")
+flags.DEFINE_boolean("use_gpu", True,
+                     "Whether to use GPU for inference (default: True)")
 
 
 class InputExample(object):
@@ -317,6 +319,32 @@ def calculate_metrics(y_true, y_pred, y_probs):
 def main(_):
     tf.logging.set_verbosity(tf.logging.INFO)
 
+    # Check GPU availability
+    from tensorflow.python.client import device_lib
+    local_devices = device_lib.list_local_devices()
+    gpus = [x for x in local_devices if x.device_type == 'GPU']
+
+    if FLAGS.use_gpu:
+        if gpus:
+            print(f"\n{'='*60}")
+            print(f"GPU CONFIGURATION")
+            print(f"{'='*60}")
+            print(f"Number of GPUs available: {len(gpus)}")
+            for gpu in gpus:
+                print(f"  - {gpu.name}")
+            print(f"GPU will be used for inference")
+            print(f"{'='*60}\n")
+        else:
+            print(f"\n{'='*60}")
+            print(f"WARNING: --use_gpu=True but no GPU detected!")
+            print(f"Falling back to CPU inference (will be slower)")
+            print(f"{'='*60}\n")
+    else:
+        print(f"\n{'='*60}")
+        print(f"GPU disabled by user (--use_gpu=False)")
+        print(f"Using CPU for inference")
+        print(f"{'='*60}\n")
+
     # Check that data directory exists
     if not tf.gfile.Exists(FLAGS.data_dir):
         raise ValueError(f"Data directory not found: {FLAGS.data_dir}")
@@ -368,11 +396,29 @@ def main(_):
         use_tpu=False
     )
 
-    # Create estimator
+    # Create estimator with GPU support
+    if FLAGS.use_gpu:
+        session_config = tf.ConfigProto(
+            allow_soft_placement=True,
+            log_device_placement=False,
+            gpu_options=tf.GPUOptions(
+                allow_growth=True,  # Dynamically allocate GPU memory
+                per_process_gpu_memory_fraction=0.9  # Use up to 90% of GPU memory
+            )
+        )
+    else:
+        # Force CPU usage
+        session_config = tf.ConfigProto(
+            allow_soft_placement=True,
+            log_device_placement=False,
+            device_count={'GPU': 0}
+        )
+
     run_config = tf.contrib.tpu.RunConfig(
         model_dir=FLAGS.output_dir,
         save_checkpoints_steps=1000,
-        keep_checkpoint_max=1
+        keep_checkpoint_max=1,
+        session_config=session_config
     )
 
     estimator = tf.contrib.tpu.TPUEstimator(

@@ -577,7 +577,9 @@ python train_lora.py \
       --dataset_mode combined \
       --award_data_dir /scratch1/tanalvin/Data/Award-winning \
       --wp_data_dir /scratch1/tanalvin/Data/WritingPrompts \
-      --output_dir ../output_longformer_attention \
+      --output_dir ../output_longformer_attention_new \
+      --pooling_strategy cls \
+      --use_all_layers \
       --model_type longformer \
       --model_name allenai/longformer-base-4096 \
       --max_seq_length 4096 \
