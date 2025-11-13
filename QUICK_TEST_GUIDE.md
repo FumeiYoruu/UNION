@@ -2,9 +2,16 @@
 
 ## TL;DR - Run This Now
 
-Since you have **TensorFlow 2.x** installed, use this command:
+Since you have **TensorFlow 2.x** installed, use these commands:
 
 ```bash
+# Make sure you're in the UNION directory
+cd /home1/tanalvin/Desktop/UNION
+
+# Step 1: Test TensorFlow compatibility (optional but recommended)
+python test_tf_compat.py
+
+# Step 2: Run the accuracy test
 python test_union_accuracy_tf2.py \
     --data_dir /scratch1/tanalvin/Data/WritingPrompts \
     --init_checkpoint ./model/uncased_L-12_H-768_A-12/union_wp/model.ckpt \
@@ -12,6 +19,8 @@ python test_union_accuracy_tf2.py \
     --vocab_file ./model/uncased_L-12_H-768_A-12/vocab.txt \
     --output_dir ./test_results
 ```
+
+**Note**: The script uses `tf2_compat_setup.py` to patch TensorFlow 2.x for compatibility with the original UNION code.
 
 ## What You Need
 
@@ -69,8 +78,10 @@ Results saved to:
 
 ## Common Issues
 
-### Issue: "AttributeError: module 'tensorflow' has no attribute 'flags'"
+### Issue: "AttributeError: module 'tensorflow' has no attribute 'flags'" or "no attribute 'gfile'"
 **Solution**: You're using TF2 but ran the TF1 script. Use `test_union_accuracy_tf2.py` instead.
+
+The TF2 script automatically patches TensorFlow using `tf2_compat_setup.py` to add missing TF1 attributes (`tf.gfile`, `tf.flags`, etc.).
 
 ### Issue: "Test data files not found"
 **Solution**: Generate test data:

@@ -43,7 +43,7 @@ pip install numpy
 
 **Use this script**: `test_union_accuracy_tf2.py`
 
-**Note**: The TF2 version uses `tensorflow.compat.v1` to maintain compatibility with the original UNION model code.
+**Note**: The TF2 version uses `tf2_compat_setup.py` to patch TensorFlow 2.x with TF1 compatibility (adds `tf.gfile`, `tf.flags`, etc.). This wrapper is imported automatically by the test script.
 
 ## Data Preparation
 

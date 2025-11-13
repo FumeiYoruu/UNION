@@ -11,20 +11,15 @@ from __future__ import print_function
 import os
 import sys
 import argparse
+
+# IMPORTANT: Import TF2 compatibility setup BEFORE any other imports
+import tf2_compat_setup
+
 import numpy as np
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support, confusion_matrix, classification_report
-
-# TensorFlow compatibility
 import tensorflow as tf
-if tf.__version__.startswith('1.'):
-    import union_modeling as modeling
-    import tokenization
-else:
-    # TF2 compatibility - disable v2 behavior
-    import tensorflow.compat.v1 as tf
-    tf.disable_v2_behavior()
-    import union_modeling as modeling
-    import tokenization
+import union_modeling as modeling
+import tokenization
 
 
 class InputExample(object):
