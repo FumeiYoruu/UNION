@@ -116,6 +116,11 @@ if tf.__version__.startswith('2.'):
     if not hasattr(tf, 'train'):
         tf.train = tf_v1.train
 
+    # Add estimator module
+    if not hasattr(tf, 'estimator'):
+        tf.estimator = tf_v1.estimator
+        tf_v1.estimator = tf_v1.estimator
+
     # Replace tensorflow in sys.modules
     sys.modules['tensorflow'] = tf_v1
 
