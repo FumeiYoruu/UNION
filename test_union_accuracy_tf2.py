@@ -19,25 +19,63 @@ import numpy as np
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support, confusion_matrix, classification_report
 import tensorflow as tf
 
-# Import estimator classes - they exist in TF internals even if tf.estimator doesn't
+# Import estimator classes - try multiple paths
+Estimator = None
+RunConfig = None
+EstimatorSpec = None
+
+# Try option 1: tensorflow_estimator top-level
 try:
-    # Try direct import from internal modules (works in TF2)
-    from tensorflow.python.estimator.estimator import Estimator
-    from tensorflow.python.estimator.run_config import RunConfig
-    from tensorflow.python.estimator.model_fn import EstimatorSpec, ModeKeys
-    print("✓ Loaded Estimator classes from tensorflow.python.estimator")
-except ImportError as e:
-    # Fallback: try tensorflow_estimator package
+    import tensorflow_estimator as tfe
+    Estimator = tfe.estimator.Estimator
+    RunConfig = tfe.estimator.RunConfig
+    EstimatorSpec = tfe.estimator.EstimatorSpec
+    print("✓ Loaded from tensorflow_estimator.estimator")
+except (ImportError, AttributeError) as e1:
+    # Try option 2: keras.estimator (TF 2.16+)
     try:
-        from tensorflow_estimator.python.estimator.estimator import Estimator
-        from tensorflow_estimator.python.estimator.run_config import RunConfig
-        from tensorflow_estimator.python.estimator.model_fn import EstimatorSpec, ModeKeys
-        print("✓ Loaded Estimator classes from tensorflow_estimator")
-    except ImportError:
-        raise ImportError(
-            "Could not import Estimator classes. Please ensure TensorFlow is properly installed.\n"
-            f"Original error: {e}"
-        )
+        from tensorflow import keras
+        Estimator = keras.estimator.Estimator
+        RunConfig = keras.estimator.RunConfig
+        EstimatorSpec = keras.estimator.EstimatorSpec
+        print("✓ Loaded from tensorflow.keras.estimator")
+    except (ImportError, AttributeError) as e2:
+        # Try option 3: Direct from estimator module
+        try:
+            import estimator
+            Estimator = estimator.Estimator
+            RunConfig = estimator.RunConfig
+            EstimatorSpec = estimator.EstimatorSpec
+            print("✓ Loaded from estimator module")
+        except (ImportError, AttributeError) as e3:
+            print("\n" + "="*70)
+            print("ERROR: Could not import Estimator classes!")
+            print("="*70)
+            print(f"\nAttempted imports:")
+            print(f"  1. tensorflow_estimator: {e1}")
+            print(f"  2. tensorflow.keras.estimator: {e2}")
+            print(f"  3. estimator module: {e3}")
+            print("\nDebugging info:")
+            print(f"  TensorFlow version: {tf.__version__}")
+            print(f"  TensorFlow location: {tf.__file__}")
+
+            # Check what's available
+            print("\nChecking tensorflow_estimator installation:")
+            try:
+                import tensorflow_estimator as tfe
+                print(f"  Module found at: {tfe.__file__}")
+                print(f"  Available attributes: {dir(tfe)}")
+            except ImportError:
+                print("  Module not installed")
+
+            print("\n" + "="*70)
+            print("Please try: pip install --upgrade tensorflow tensorflow-estimator")
+            print("="*70 + "\n")
+            sys.exit(1)
+
+if not all([Estimator, RunConfig, EstimatorSpec]):
+    print("ERROR: Some Estimator classes could not be loaded")
+    sys.exit(1)
 
 import union_modeling as modeling
 import tokenization
