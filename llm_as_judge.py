@@ -37,7 +37,7 @@ class StoryEvaluationOutput(BaseModel):
     
     strengths: List[str] = Field(description="List of 2-4 specific strengths of the story")
     weaknesses: List[str] = Field(description="List of 2-4 specific weaknesses of the story")
-    overall_recommendation: str = Field(description="One of: 'publish', 'revise', 'reject' (or 'good'/'bad' which will be mapped)")
+    overall_binary_rating: str = Field(description="One of: 'good', 'bad'")
     revision_priorities: List[str] = Field(description="Top 3 priorities for improvement if applicable")
 
 
